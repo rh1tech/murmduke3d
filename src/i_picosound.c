@@ -336,17 +336,16 @@ static void stop_voice(int voice_idx, bool do_callback) {
     if (voice_idx < 0 || voice_idx >= NUM_SOUND_CHANNELS) return;
     
     voice_t *v = &voices[voice_idx];
-    // uint32_t cb_val = v->callback_val;  // Disabled for debugging
-    // bool was_active = v->active;        // Disabled for debugging
+    uint32_t cb_val = v->callback_val;
+    bool was_active = v->active;
     
     // Mark inactive
     v->active = false;
     
-    // TEMPORARILY DISABLED - testing if callbacks cause hang
-    // if (was_active && do_callback) {
-    //     queue_callback(cb_val);
-    // }
-    (void)do_callback;  // Suppress unused warning
+    // Queue callback if sound was playing and callback requested
+    if (was_active && do_callback && cb_val != 0) {
+        queue_callback(cb_val);
+    }
 }
 
 //=============================================================================
@@ -575,7 +574,10 @@ static void mix_audio_buffer(audio_buffer_t *buffer) {
                 decompress_buffer(v);  // Read from PSRAM here
                 offset_end = v->buffer_size * 65536;
                 if (offset_end == 0 || v->offset >= offset_end) {
-                    // Sound finished or buffer empty
+                    // Sound finished or buffer empty - queue callback
+                    if (v->callback_val != 0) {
+                        queue_callback(v->callback_val);
+                    }
                     v->active = false;
                     break;
                 }

@@ -994,7 +994,10 @@ void newgame(uint8_t  vn,uint8_t  ln,uint8_t  sk)
     short i;
 
     if(globalskillsound >= 0)
-        while(Sound[globalskillsound].lock>=200);
+        while(Sound[globalskillsound].lock>=200) {
+            // Must call faketimerhandler to process audio and callbacks
+            faketimerhandler();
+        }
     globalskillsound = -1;
 
     waitforeverybody();
