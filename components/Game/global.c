@@ -33,6 +33,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "duke3d.h"
 
 #include "esp_attr.h"
+#include "psram_sections.h"
 
 #include "SDL.h"
 
@@ -144,18 +145,17 @@ EXT_RAM_ATTR struct player_struct ps[MAXPLAYERS];
 struct user_defs ud;
 
 uint8_t  pus, pub;
-EXT_RAM_ATTR uint8_t  syncstat, syncval[MAXPLAYERS][MOVEFIFOSIZ];
+EXT_RAM_ATTR uint8_t  syncstat;
+EXT_RAM_ATTR uint8_t syncval[MAXPLAYERS][MOVEFIFOSIZ] __psram_bss("syncval");
 int32_t syncvalhead[MAXPLAYERS], syncvaltail, syncvaltottail;
 
 input sync[MAXPLAYERS], loc;
-/* inputfifo and recsync kept as static arrays - 2D access pattern is used throughout */
-EXT_RAM_ATTR input recsync[RECSYNCBUFSIZ];
 int32_t avgfvel, avgsvel, avgavel, avghorz, avgbits;
 
 
-/* inputfifo and recsync kept as static arrays */
-EXT_RAM_ATTR input inputfifo[MOVEFIFOSIZ][MAXPLAYERS];
-EXT_RAM_ATTR input recsync[RECSYNCBUFSIZ];
+/* Large arrays moved to PSRAM via linker section */
+EXT_RAM_ATTR input inputfifo[MOVEFIFOSIZ][MAXPLAYERS] __psram_bss("inputfifo");
+EXT_RAM_ATTR input recsync[RECSYNCBUFSIZ] __psram_bss("recsync");
 
 int32_t movefifosendplc;
 

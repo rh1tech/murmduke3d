@@ -9,6 +9,7 @@
 
 #include "psram_init.h"
 #include "psram_data.h"
+#include "psram_sections.h"
 #include "board_config.h"
 
 // Forward declaration of Duke3D main
@@ -34,6 +35,12 @@ int main() {
     uint psram_pin = get_psram_pin();
     psram_init(psram_pin);
     printf("PSRAM initialized on GPIO %u\n", psram_pin);
+    
+    // Initialize PSRAM linker sections (copy .psram_data, zero .psram_bss)
+    printf("Initializing PSRAM sections...\n");
+    psram_sections_init();
+    printf("PSRAM sections: data=%zu bytes, bss=%zu bytes\n", 
+           psram_data_size(), psram_bss_size());
     
     // Allocate game data arrays in PSRAM
     psram_data_init();

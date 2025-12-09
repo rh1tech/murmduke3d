@@ -1,14 +1,17 @@
 /*
  * SDL Video implementation for RP2350
  * Uses HDMI driver for display output
- * Copy-based double buffering with DMA acceleration
+ * 
+ * Approach (based on Quake port):
+ * - vid_buffer: Game renders here (in PSRAM via psram_malloc)
+ * - FRAME_BUF: HDMI reads from here (static in SRAM for fast access)
+ * - SDL_Flip: memcpy from vid_buffer to FRAME_BUF (PSRAM->SRAM is fast)
  */
 #include "SDL.h"
 #include "SDL_video.h"
 #include "HDMI.h"
 #include "psram_allocator.h"
 #include "pico/stdlib.h"
-#include "hardware/dma.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
@@ -23,12 +26,12 @@ static SDL_PixelFormat primary_format;
 static SDL_Palette primary_palette;
 static SDL_Color palette_colors[256];
 
-/* Double buffering: game always renders to back_buffer, HDMI reads from front_buffer */
-static uint8_t *front_buffer = NULL;  /* HDMI displays this */
-static uint8_t *back_buffer = NULL;   /* Game renders to this */
+/* FRAME_BUF in SRAM - HDMI reads from this for fast scanline access */
+/* Aligned for optimal DMA/memory access */
+static uint8_t FRAME_BUF[FRAME_SIZE] __attribute__((aligned(4)));
 
-/* DMA channel for fast buffer copy */
-static int dma_chan = -1;
+/* Game render buffer in PSRAM */
+static uint8_t *vid_buffer = NULL;
 
 int SDL_LockSurface(SDL_Surface *surface) {
     return 0;
@@ -129,27 +132,19 @@ SDL_Surface *SDL_SetVideoMode(int width, int height, int bpp, Uint32 flags) {
     graphics_init(g_out_HDMI);
     graphics_set_res(width, height);
     
-    // Allocate front buffer (HDMI reads from this)
-    front_buffer = (uint8_t *)psram_malloc(width * height);
-    if (!front_buffer) {
-        printf("SDL_SetVideoMode: Failed to allocate front buffer\n");
+    // Clear the SRAM display buffer
+    memset(FRAME_BUF, 0, FRAME_SIZE);
+    
+    // Allocate render buffer in PSRAM (game draws here)
+    vid_buffer = (uint8_t *)psram_malloc(width * height);
+    if (!vid_buffer) {
+        printf("SDL_SetVideoMode: Failed to allocate vid_buffer\n");
         return NULL;
     }
-    memset(front_buffer, 0, width * height);
+    memset(vid_buffer, 0, width * height);
     
-    // Allocate back buffer (game renders to this)
-    back_buffer = (uint8_t *)psram_malloc(width * height);
-    if (!back_buffer) {
-        printf("SDL_SetVideoMode: Failed to allocate back buffer\n");
-        return NULL;
-    }
-    memset(back_buffer, 0, width * height);
-    
-    // HDMI displays from front buffer
-    graphics_set_buffer(front_buffer);
-    
-    // DMA will be set up later if needed - for now use memcpy
-    dma_chan = -1;  // Disable DMA for now - use memcpy
+    // HDMI reads from SRAM buffer (fast scanline access)
+    graphics_set_buffer(FRAME_BUF);
     
     // Initialize palette
     primary_palette.ncolors = 256;
@@ -171,21 +166,21 @@ SDL_Surface *SDL_SetVideoMode(int width, int height, int bpp, Uint32 flags) {
     primary_surface->w = width;
     primary_surface->h = height;
     primary_surface->pitch = width;
-    primary_surface->pixels = back_buffer;  /* Game always renders to back buffer */
+    primary_surface->pixels = vid_buffer;  /* Game renders to PSRAM buffer */
     primary_surface->clip_rect.x = 0;
     primary_surface->clip_rect.y = 0;
     primary_surface->clip_rect.w = width;
     primary_surface->clip_rect.h = height;
     primary_surface->refcount = 1;
     
-    printf("SDL_SetVideoMode: %dx%d @ %dbpp (DMA double-buffered)\n", width, height, bpp);
+    printf("SDL_SetVideoMode: %dx%d @ %dbpp (SRAM display buffer)\n", width, height, bpp);
     
     return primary_surface;
 }
 
 void SDL_FreeSurface(SDL_Surface *surface) {
     if (surface && surface != primary_surface) {
-        if (surface->pixels && surface->pixels != back_buffer && surface->pixels != front_buffer) {
+        if (surface->pixels && surface->pixels != vid_buffer) {
             psram_free(surface->pixels);
         }
         if (surface->format && surface->format != &primary_format) {
@@ -214,30 +209,11 @@ int SDL_SetColors(SDL_Surface *surface, SDL_Color *colors, int firstcolor, int n
 }
 
 int SDL_Flip(SDL_Surface *screen) {
-    if (!screen || !back_buffer || !front_buffer) return -1;
+    if (!screen || !vid_buffer) return -1;
     
-    /* Fast 32-bit word copy - much faster than memcpy for PSRAM */
-    uint32_t *src = (uint32_t *)back_buffer;
-    uint32_t *dst = (uint32_t *)front_buffer;
-    uint32_t count = FRAME_SIZE / 4;  /* 76800 / 4 = 19200 words */
-    
-    /* Unrolled loop for speed */
-    while (count >= 8) {
-        dst[0] = src[0];
-        dst[1] = src[1];
-        dst[2] = src[2];
-        dst[3] = src[3];
-        dst[4] = src[4];
-        dst[5] = src[5];
-        dst[6] = src[6];
-        dst[7] = src[7];
-        src += 8;
-        dst += 8;
-        count -= 8;
-    }
-    while (count--) {
-        *dst++ = *src++;
-    }
+    /* Copy from PSRAM render buffer to SRAM display buffer */
+    /* PSRAM->SRAM is fast because SRAM writes are very quick */
+    memcpy(FRAME_BUF, vid_buffer, FRAME_SIZE);
     
     return 0;
 }

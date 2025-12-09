@@ -25,6 +25,7 @@
 #include "types.h"
 
 #include "esp_attr.h"
+#include "psram_sections.h"
 
 /*
  *   This module keeps track of a standard linear cacheing system.
@@ -70,8 +71,8 @@ typedef struct {
     uint8_t  *lock; } 
 cactype;
 
-EXT_RAM_ATTR cactype cac[MAXCACHEOBJECTS];
-EXT_RAM_ATTR int32_t lockrecip[200];
+EXT_RAM_ATTR cactype cac[MAXCACHEOBJECTS] __psram_bss("cac");
+EXT_RAM_ATTR int32_t lockrecip[200] __psram_bss("lockrecip");
 
 // TC game directory
 char  game_dir[512] = { "/sd/duke3d\0" };

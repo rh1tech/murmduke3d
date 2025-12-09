@@ -32,6 +32,7 @@
 
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
+#include "psram_sections.h"
 
 int32_t stereowidth = 23040, stereopixelwidth = 28, ostereopixelwidth = -1;
 int32_t stereomode = 0, visualpage, activepage, whiteband, blackband;
@@ -79,9 +80,10 @@ EXT_RAM_ATTR int32_t slopalookup[16384];
 uint8_t  permanentlock = 255;
 int32_t  mapversion;
 
-EXT_RAM_ATTR uint8_t  picsiz[MAXTILES], tilefilenum[MAXTILES];
+EXT_RAM_ATTR uint8_t  picsiz[MAXTILES] __psram_bss("picsiz");
+EXT_RAM_ATTR uint8_t tilefilenum[MAXTILES] __psram_bss("tilefilenum");
 int32_t lastageclock;
-EXT_RAM_ATTR int32_t tilefileoffs[MAXTILES];
+EXT_RAM_ATTR int32_t tilefileoffs[MAXTILES] __psram_bss("tilefileoffs");
 
 int32_t artsize = 0, cachesize = 0;
 
@@ -298,7 +300,7 @@ typedef struct
     uint8_t  dapalnum, dastat, pagesleft;
     int32_t cx1, cy1, cx2, cy2;
 } permfifotype;
-EXT_RAM_ATTR static permfifotype permfifo[MAXPERMS];
+EXT_RAM_ATTR static permfifotype permfifo[MAXPERMS] __psram_bss("permfifo");
 static int32_t permhead = 0, permtail = 0;
 
 //FCS: Num walls to potentially render.

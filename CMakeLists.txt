@@ -141,6 +141,9 @@ target_link_options(murmduke3d PRIVATE
     -Wl,--allow-multiple-definition
 )
 
+# Use custom linker script with PSRAM sections
+pico_set_linker_script(murmduke3d ${CMAKE_CURRENT_SOURCE_DIR}/memmap_psram.ld)
+
 target_link_libraries(murmduke3d
     pico_stdlib
     pico_multicore
