@@ -24,7 +24,7 @@
 #define MAXYDIM 1200
 #define MAXPALOOKUPS 256
 #define MAXPSKYTILES 256
-#define MAXSPRITESONSCREEN 1024
+#define MAXSPRITESONSCREEN 256  /* Reduced from 1024 for RP2350 performance */
 
 #define CLIPMASK0 (((1L)<<16)+1L)
 #define CLIPMASK1 (((256L)<<16)+64L)

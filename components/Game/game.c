@@ -3611,6 +3611,20 @@ uint8_t  wallswitchcheck(short i)
     return 0;
 }
 
+/* RP2350 PERF: Limit explosion/smoke effects to prevent slowdown */
+#define MAX_EXPLOSION_SPRITES 24
+static short count_effect_sprites(short picnum)
+{
+    short count = 0;
+    short i = headspritestat[5];  /* STAT_MISC - explosions and effects */
+    while (i >= 0 && count < MAX_EXPLOSION_SPRITES + 1)
+    {
+        if (sprite[i].picnum == picnum)
+            count++;
+        i = nextspritestat[i];
+    }
+    return count;
+}
 
 int32_t tempwallptr;
 short spawn( short j, short pn )
@@ -3619,6 +3633,14 @@ short spawn( short j, short pn )
     int32_t x, y, d;
     spritetype *sp;
     char text[512];
+
+    /* RP2350 PERF: Limit number of explosion/smoke sprites to prevent slowdown */
+    if (pn == EXPLOSION2 || pn == EXPLOSION2BOT || pn == SMALLSMOKE || 
+        pn == BURNING || pn == BURNING2 || pn == SHRINKEREXPLOSION)
+    {
+        if (count_effect_sprites(pn) >= MAX_EXPLOSION_SPRITES)
+            return -1;  /* Don't spawn more, return invalid sprite */
+    }
 
     if(j >= 0)
     {

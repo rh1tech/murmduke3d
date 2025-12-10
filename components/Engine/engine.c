@@ -5769,12 +5769,26 @@ void drawmasks(void)
     
     
     //Generate screenspace coordinate (X column and Y distance).
+    //Also cull sprites that are too far away or too small to matter.
     for(i=spritesortcnt-1; i>=0; i--)
     {
         //Translate and rotate the sprite in Camera space coordinate.
         xs = tspriteptr[i]->x-globalposx;
         ys = tspriteptr[i]->y-globalposy;
         yp = dmulscale6(xs,cosviewingrangeglobalang,ys,sinviewingrangeglobalang);
+        
+        /* RP2350 PERF: Cull very distant sprites (beyond ~32K units) */
+        if (yp > (32000<<8))
+        {
+            spritesortcnt--;
+            if (i != spritesortcnt)
+            {
+                tspriteptr[i] = tspriteptr[spritesortcnt];
+                spritesx[i] = spritesx[spritesortcnt];
+                spritesy[i] = spritesy[spritesortcnt];
+            }
+            continue;
+        }
         
         if (yp > (4<<8))
         {
