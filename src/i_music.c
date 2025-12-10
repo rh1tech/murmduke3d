@@ -27,6 +27,12 @@
 #define OPL_NUM_VOICES  9
 #define OPL_SECOND      1000000ULL  // Microseconds per second
 
+// From Duke3D _al_midi.h
+#define NOTE_ON         0x2000      // Used to turn note on or toggle note
+#define MAX_VELOCITY    0x7f
+#define MAX_OCTAVE      7
+#define MAX_NOTE        (MAX_OCTAVE * 12 + 11)
+
 // Duke3D timbre format (13 bytes per instrument)
 typedef struct {
     uint8_t SAVEK[2];    // Modulator/Carrier characteristics (reg 0x20)
@@ -39,21 +45,25 @@ typedef struct {
     int8_t Velocity;     // Velocity sensitivity
 } timbre_t;
 
-// OPL voice state
+// OPL voice state (from Duke3D VOICE struct)
 typedef struct {
     bool active;
-    uint8_t channel;     // MIDI channel
-    uint8_t note;        // MIDI note number
-    uint8_t velocity;    // Note velocity
-    uint8_t instrument;  // Instrument number
+    int channel;         // MIDI channel
+    int key;             // MIDI note number (key)
+    int velocity;        // Note velocity
+    int timbre;          // Instrument/timbre number (-1 = none)
+    int status;          // NOTE_ON or 0
+    int pitchleft;       // Current pitch value
 } opl_voice_t;
 
-// MIDI channel state
+// MIDI channel state (from Duke3D CHANNEL struct)
 typedef struct {
-    uint8_t instrument;  // Current program
-    uint8_t volume;      // Channel volume (0-127)
-    int16_t pitchbend;   // Pitch bend (-8192 to +8192)
-    uint8_t pan;         // Pan position (0-127)
+    int Timbre;          // Current program/instrument
+    int volume;          // Channel volume (0-127)
+    int pitchbend;       // Pitch bend
+    int pan;             // Pan position (0-127)
+    int KeyOffset;       // Key offset (transposition)
+    int KeyDetune;       // Fine tuning (0-31)
 } midi_channel_t;
 
 // Module state
@@ -67,7 +77,7 @@ static bool music_initialized = false;
 static bool music_playing = false;
 static bool music_paused = false;
 static bool music_looping = false;
-static int music_volume = 127;
+static int music_volume = 153;  // ~60% volume (0-255 range)
 
 // Timbre bank
 static timbre_t timbre_bank[256];
@@ -76,6 +86,10 @@ static bool timbre_loaded = false;
 // Voice allocation
 static opl_voice_t voices[OPL_NUM_VOICES];
 static midi_channel_t channels[16];
+
+// Per-slot voice level and KSL storage (from Duke3D)
+static int VoiceLevel[18];  // NumChipSlots = 18
+static int VoiceKsl[18];
 
 // Timing
 static uint64_t current_time_us = 0;
@@ -86,15 +100,44 @@ static unsigned int ticks_per_beat = 480;
 static int32_t opl_temp_buffer[1024];
 
 //=============================================================================
-// OPL Register Helpers
+// Duke3D Lookup Tables (from al_midi.c)
 //=============================================================================
 
-// Operator offsets for each voice
-static const uint8_t op_offsets[OPL_NUM_VOICES][2] = {
-    {0x00, 0x03}, {0x01, 0x04}, {0x02, 0x05},
-    {0x08, 0x0B}, {0x09, 0x0C}, {0x0A, 0x0D},
-    {0x10, 0x13}, {0x11, 0x14}, {0x12, 0x15}
+// Octave pitch values (from _al_midi.h)
+static const unsigned int OctavePitch[8] = {
+    0x0000, 0x0400, 0x0800, 0x0C00,
+    0x1000, 0x1400, 0x1800, 0x1C00
 };
+
+// Note pitch F-numbers (from al_midi.c - first row of NotePitch array, detune=0)
+static const unsigned int NotePitch[12] = {
+    0x157, 0x16b, 0x181, 0x198, 0x1b0, 0x1ca, 
+    0x1e5, 0x202, 0x220, 0x241, 0x263, 0x287
+};
+
+// Slot numbers for each voice - modulator and carrier (from al_midi.c)
+static const int slotVoice[OPL_NUM_VOICES][2] = {
+    { 0, 3 },    // voice 0
+    { 1, 4 },    // 1
+    { 2, 5 },    // 2
+    { 6, 9 },    // 3
+    { 7, 10 },   // 4
+    { 8, 11 },   // 5
+    { 12, 15 },  // 6
+    { 13, 16 },  // 7
+    { 14, 17 },  // 8
+};
+
+// Offset of each slot within the chip registers (from al_midi.c)
+static const int offsetSlot[18] = {
+    0,  1,  2,  3,  4,  5,
+    8,  9, 10, 11, 12, 13,
+   16, 17, 18, 19, 20, 21
+};
+
+//=============================================================================
+// OPL Register Helpers
+//=============================================================================
 
 static void OPL_Write(uint8_t reg, uint8_t value) {
     if (opl_emu) {
@@ -102,145 +145,210 @@ static void OPL_Write(uint8_t reg, uint8_t value) {
     }
 }
 
-static void OPL_SetVoiceInstrument(int voice, int instrument) {
+/*
+ * AL_SetVoiceTimbre - exact port from Duke3D al_midi.c
+ * Programs the specified voice's timbre.
+ */
+static void AL_SetVoiceTimbre(int voice) {
     if (voice < 0 || voice >= OPL_NUM_VOICES) return;
-    if (instrument < 0 || instrument >= 256) return;
-    if (!timbre_loaded) {
-        static bool warned = false;
-        if (!warned) {
-            printf("OPL: Timbre not loaded!\n");
-            warned = true;
-        }
+    if (!timbre_loaded) return;
+
+    int channel = voices[voice].channel;
+    int patch;
+    
+    // Determine patch from channel (percussion uses key + 128)
+    if (channel == 9) {
+        patch = voices[voice].key + 128;
+    } else {
+        patch = channels[channel].Timbre;
+    }
+    
+    // Skip if already using this timbre
+    if (voices[voice].timbre == patch) {
         return;
     }
-
-    const timbre_t *t = &timbre_bank[instrument];
-    uint8_t mod_off = op_offsets[voice][0];
-    uint8_t car_off = op_offsets[voice][1];
-
-    // Modulator registers
-    OPL_Write(0x20 + mod_off, t->SAVEK[0]);    // Characteristics
-    OPL_Write(0x40 + mod_off, t->Level[0]);    // Level
-    OPL_Write(0x60 + mod_off, t->Env1[0]);     // Attack/Decay
-    OPL_Write(0x80 + mod_off, t->Env2[0]);     // Sustain/Release
-    OPL_Write(0xE0 + mod_off, t->Wave[0]);     // Waveform
-
-    // Carrier registers
-    OPL_Write(0x20 + car_off, t->SAVEK[1]);    // Characteristics
-    OPL_Write(0x40 + car_off, t->Level[1]);    // Level (will be overridden by volume)
-    OPL_Write(0x60 + car_off, t->Env1[1]);     // Attack/Decay
-    OPL_Write(0x80 + car_off, t->Env2[1]);     // Sustain/Release
-    OPL_Write(0xE0 + car_off, t->Wave[1]);     // Waveform
-
-    // Feedback/connection
-    OPL_Write(0xC0 + voice, t->Feedback);
-
-    voices[voice].instrument = instrument;
+    
+    voices[voice].timbre = patch;
+    const timbre_t *timbre = &timbre_bank[patch];
+    
+    int slot = slotVoice[voice][0];  // Modulator slot
+    int off = offsetSlot[slot];
+    
+    // Store level and KSL for volume calculations
+    VoiceLevel[slot] = 63 - (timbre->Level[0] & 0x3F);
+    VoiceKsl[slot] = timbre->Level[0] & 0xC0;
+    
+    // Turn off voice and clear frequency
+    OPL_Write(0xA0 + voice, 0);
+    OPL_Write(0xB0 + voice, 0);
+    
+    // Let voice clear the release
+    OPL_Write(0x80 + off, 0xFF);
+    
+    // Set modulator registers
+    OPL_Write(0x60 + off, timbre->Env1[0]);     // Attack/Decay
+    OPL_Write(0x80 + off, timbre->Env2[0]);     // Sustain/Release
+    OPL_Write(0x20 + off, timbre->SAVEK[0]);    // Characteristics
+    OPL_Write(0xE0 + off, timbre->Wave[0]);     // Waveform
+    OPL_Write(0x40 + off, timbre->Level[0]);    // Level
+    
+    // Set feedback/connection (for OPL2, just the feedback nibble)
+    OPL_Write(0xC0 + voice, timbre->Feedback & 0x0F);
+    
+    // Now set carrier (slot 1)
+    slot = slotVoice[voice][1];
+    off = offsetSlot[slot];
+    
+    // Store level and KSL for carrier
+    VoiceLevel[slot] = 63 - (timbre->Level[1] & 0x3F);
+    VoiceKsl[slot] = timbre->Level[1] & 0xC0;
+    
+    // Set carrier to silent initially
+    OPL_Write(0x40 + off, 63);
+    
+    // Let voice clear the release
+    OPL_Write(0x80 + off, 0xFF);
+    
+    // Set carrier registers
+    OPL_Write(0x60 + off, timbre->Env1[1]);     // Attack/Decay
+    OPL_Write(0x80 + off, timbre->Env2[1]);     // Sustain/Release
+    OPL_Write(0x20 + off, timbre->SAVEK[1]);    // Characteristics
+    OPL_Write(0xE0 + off, timbre->Wave[1]);     // Waveform
 }
 
-static void OPL_SetVoiceVolume(int voice, int velocity, int channel_volume) {
+/*
+ * AL_SetVoiceVolume - exact port from Duke3D al_midi.c
+ * Sets the volume of the specified voice.
+ */
+static void AL_SetVoiceVolume(int voice) {
     if (voice < 0 || voice >= OPL_NUM_VOICES) return;
+    if (voices[voice].timbre < 0) return;
     
-    int inst = voices[voice].instrument;
-    const timbre_t *t = &timbre_bank[inst];
+    int channel = voices[voice].channel;
+    const timbre_t *timbre = &timbre_bank[voices[voice].timbre];
     
-    uint8_t mod_off = op_offsets[voice][0];
-    uint8_t car_off = op_offsets[voice][1];
+    // Add timbre velocity adjustment
+    int velocity = voices[voice].velocity + timbre->Velocity;
+    if (velocity > MAX_VELOCITY) velocity = MAX_VELOCITY;
+    if (velocity < 0) velocity = 0;
     
-    // Calculate volume: scale velocity and channel volume to 0-63 attenuation
-    // Lower attenuation = louder
-    int vol = (velocity * channel_volume * music_volume) / (127 * 127);
-    if (vol > 127) vol = 127;
+    int slot = slotVoice[voice][1];  // Carrier slot
+    int off = offsetSlot[slot];
     
-    // Convert to attenuation (0 = no attenuation/loud, 63 = full attenuation/quiet)
-    int atten = 63 - ((vol * 63) / 127);
+    // Volume calculation from Duke3D:
+    // t1 = VoiceLevel * (velocity + 0x80) * ChannelVolume >> 15
+    unsigned int t1 = (unsigned int)VoiceLevel[slot];
+    t1 *= (velocity + 0x80);
+    t1 = (channels[channel].volume * t1) >> 15;
     
-    // Use timbre's base level, modified by calculated attenuation
-    int carrier_base = t->Level[1] & 0x3F;
-    int carrier_atten = carrier_base + (atten / 2);  // Only add half the attenuation
-    if (carrier_atten > 63) carrier_atten = 63;
+    // Apply music volume scaling (music_volume is 0-255)
+    t1 = (t1 * music_volume) >> 8;
     
-    OPL_Write(0x40 + car_off, (t->Level[1] & 0xC0) | carrier_atten);
+    // Convert to attenuation: volume XOR 63, then add KSL bits
+    unsigned int volume = (t1 ^ 63) & 0x3F;
+    volume |= (unsigned int)VoiceKsl[slot];
     
-    // For additive synthesis (FM connection bit = 1), also set modulator volume
-    if (t->Feedback & 0x01) {
-        int mod_base = t->Level[0] & 0x3F;
-        int mod_atten = mod_base + (atten / 2);
-        if (mod_atten > 63) mod_atten = 63;
-        OPL_Write(0x40 + mod_off, (t->Level[0] & 0xC0) | mod_atten);
+    OPL_Write(0x40 + off, volume);
+    
+    // If additive synthesis (connection bit = 1), also set modulator volume
+    if (timbre->Feedback & 0x01) {
+        slot = slotVoice[voice][0];  // Modulator slot
+        off = offsetSlot[slot];
+        
+        unsigned int t2 = (unsigned int)VoiceLevel[slot];
+        t2 *= (velocity + 0x80);
+        t2 = (channels[channel].volume * t2) >> 15;
+        t2 = (t2 * music_volume) >> 8;
+        
+        volume = (t2 ^ 63) & 0x3F;
+        volume |= (unsigned int)VoiceKsl[slot];
+        
+        OPL_Write(0x40 + off, volume);
     }
 }
 
-// Frequency lookup table (F-number for each note in octave 0-4)
-static const uint16_t note_fnum[12] = {
-    0x157, 0x16B, 0x181, 0x198, 0x1B0, 0x1CA,
-    0x1E5, 0x202, 0x220, 0x241, 0x263, 0x287
-};
-
-static void OPL_NoteOn(int voice, int note, int velocity, int channel) {
+/*
+ * AL_SetVoicePitch - exact port from Duke3D al_midi.c
+ * Programs the pitch of the specified voice.
+ */
+static void AL_SetVoicePitch(int voice) {
     if (voice < 0 || voice >= OPL_NUM_VOICES) return;
     
-    int original_note = note;  // Save for voice tracking
+    int channel = voices[voice].channel;
+    int note;
+    int patch;
     
-    // Determine instrument and calculate actual note
-    int inst = channels[channel].instrument;
+    // Calculate note from channel type
     if (channel == 9) {
-        // Percussion channel - MIDI note selects the drum instrument
-        // The actual pitch comes from the timbre's Transpose field
-        inst = 128 + note - 35;
-        if (inst < 128) inst = 128;
-        if (inst >= 256) inst = 255;
-        // For drums, the transpose IS the note (not an offset)
-        note = timbre_bank[inst].Transpose;
+        // Percussion - note comes from timbre's transpose field
+        patch = voices[voice].key + 128;
+        note = timbre_bank[patch].Transpose;
     } else {
-        // Melodic channel - apply transpose as offset
-        note += timbre_bank[inst].Transpose;
+        // Melodic - note is key + transpose
+        patch = channels[channel].Timbre;
+        note = voices[voice].key + timbre_bank[patch].Transpose;
     }
     
-    // Apply key offset (standard MIDI middle C adjustment)
-    note -= 12;
+    // Apply key offset (Duke3D uses -12 as default)
+    note += channels[channel].KeyOffset - 12;
     
-    // Clamp note
+    // Clamp note to valid range
+    if (note > MAX_NOTE) note = MAX_NOTE;
     if (note < 0) note = 0;
-    if (note > 127) note = 127;
-
-    // Calculate octave and note within octave
-    int octave = note / 12;
-    int note_idx = note % 12;
     
-    if (octave > 7) octave = 7;
-
-    // Get F-number
-    uint16_t fnum = note_fnum[note_idx];
-
-    // Set instrument
-    OPL_SetVoiceInstrument(voice, inst);
+    // Calculate octave and scale note
+    int Octave = note / 12;
+    int ScaleNote = note % 12;
     
-    // Set volume
-    OPL_SetVoiceVolume(voice, velocity, channels[channel].volume);
-
-    // Set frequency (low byte)
-    OPL_Write(0xA0 + voice, fnum & 0xFF);
+    // Build pitch value: OctavePitch | NotePitch
+    int pitch = OctavePitch[Octave] | NotePitch[ScaleNote];
     
-    // Set frequency (high byte) with key-on and octave
-    OPL_Write(0xB0 + voice, 0x20 | ((octave & 7) << 2) | ((fnum >> 8) & 3));
-
-    // Track voice state (use original MIDI note for matching note-off)
-    voices[voice].active = true;
-    voices[voice].channel = channel;
-    voices[voice].note = original_note;
-    voices[voice].velocity = velocity;
-    voices[voice].instrument = inst;
+    voices[voice].pitchleft = pitch;
+    
+    // Add key-on status
+    pitch |= voices[voice].status;
+    
+    // Write to OPL registers (low byte to A0, high byte to B0)
+    OPL_Write(0xA0 + voice, pitch & 0xFF);
+    OPL_Write(0xB0 + voice, (pitch >> 8) & 0xFF);
 }
 
-static void OPL_NoteOff(int voice) {
+/*
+ * AL_NoteOn - based on Duke3D al_midi.c
+ * Plays a note on the specified voice (voice already allocated)
+ */
+static void AL_NoteOn(int voice, int channel, int key, int velocity) {
+    if (voice < 0 || voice >= OPL_NUM_VOICES) return;
+    
+    // Store voice state
+    voices[voice].key = key;
+    voices[voice].channel = channel;
+    voices[voice].velocity = velocity;
+    voices[voice].status = NOTE_ON;
+    voices[voice].active = true;
+    
+    // Set timbre, volume, and pitch (in that order, like Duke3D)
+    AL_SetVoiceTimbre(voice);
+    AL_SetVoiceVolume(voice);
+    AL_SetVoicePitch(voice);
+}
+
+/*
+ * AL_NoteOff - based on Duke3D al_midi.c
+ * Turns off a note on the specified voice
+ */
+static void AL_NoteOff(int voice) {
     if (voice < 0 || voice >= OPL_NUM_VOICES) return;
     if (!voices[voice].active) return;
-
-    // Simply clear the key-on bit by writing 0 to register B0+voice
-    // The OPL will use the envelope release phase
-    OPL_Write(0xB0 + voice, 0x00);
-
+    
+    // Clear key-on status
+    voices[voice].status = 0;
+    
+    // Re-write pitch with key-on cleared (allows natural release)
+    int pitch = voices[voice].pitchleft;
+    OPL_Write(0xA0 + voice, pitch & 0xFF);
+    OPL_Write(0xB0 + voice, (pitch >> 8) & 0xFF);
+    
     voices[voice].active = false;
 }
 
@@ -248,8 +356,23 @@ static void OPL_NoteOff(int voice) {
 // Voice Allocation
 //=============================================================================
 
-static int AllocateVoice(int channel, int note) {
-    // First, look for an inactive voice
+static int AllocateVoice(int channel, int key) {
+    // Calculate the timbre for this note (for matching)
+    int target_timbre;
+    if (channel == 9) {
+        target_timbre = key + 128;
+    } else {
+        target_timbre = channels[channel].Timbre;
+    }
+    
+    // First, look for an inactive voice with the same timbre (avoids timbre switch click)
+    for (int i = 0; i < OPL_NUM_VOICES; i++) {
+        if (!voices[i].active && voices[i].timbre == target_timbre) {
+            return i;
+        }
+    }
+    
+    // Second, look for any inactive voice
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
         if (!voices[i].active) {
             return i;
@@ -257,29 +380,39 @@ static int AllocateVoice(int channel, int note) {
     }
 
     // All voices busy - need to steal one
-    // Priority: steal percussion before melodic, older notes before newer
+    // Priority: steal same channel first, then percussion, then oldest
     int steal_voice = -1;
     
-    // First try to steal a percussion voice (channel 9)
+    // First try to steal from the same channel
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
-        if (voices[i].channel == 9) {
+        if (voices[i].channel == channel) {
             steal_voice = i;
             break;
         }
     }
     
-    // If no percussion, steal voice 0
+    // If that fails, try to steal a percussion voice (channel 9)
+    if (steal_voice < 0) {
+        for (int i = 0; i < OPL_NUM_VOICES; i++) {
+            if (voices[i].channel == 9) {
+                steal_voice = i;
+                break;
+            }
+        }
+    }
+    
+    // If still nothing, steal voice 0
     if (steal_voice < 0) {
         steal_voice = 0;
     }
     
-    OPL_NoteOff(steal_voice);
+    AL_NoteOff(steal_voice);
     return steal_voice;
 }
 
-static int FindVoice(int channel, int note) {
+static int FindVoice(int channel, int key) {
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
-        if (voices[i].active && voices[i].channel == channel && voices[i].note == note) {
+        if (voices[i].active && voices[i].channel == channel && voices[i].key == key) {
             return i;
         }
     }
@@ -289,7 +422,7 @@ static int FindVoice(int channel, int note) {
 static void AllNotesOff(int channel) {
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
         if (voices[i].active && voices[i].channel == channel) {
-            OPL_NoteOff(i);
+            AL_NoteOff(i);
         }
     }
 }
@@ -307,7 +440,7 @@ static void ProcessMIDIEvent(midi_event_t *event) {
             int note = event->data.channel.param1;
             int voice = FindVoice(ch, note);
             if (voice >= 0) {
-                OPL_NoteOff(voice);
+                AL_NoteOff(voice);
             }
             break;
         }
@@ -321,11 +454,11 @@ static void ProcessMIDIEvent(midi_event_t *event) {
                 // Note on with velocity 0 = note off
                 int voice = FindVoice(ch, note);
                 if (voice >= 0) {
-                    OPL_NoteOff(voice);
+                    AL_NoteOff(voice);
                 }
             } else {
                 int voice = AllocateVoice(ch, note);
-                OPL_NoteOn(voice, note, vel, ch);
+                AL_NoteOn(voice, ch, note, vel);
             }
             break;
         }
@@ -341,7 +474,7 @@ static void ProcessMIDIEvent(midi_event_t *event) {
                     // Update all active voices on this channel
                     for (int i = 0; i < OPL_NUM_VOICES; i++) {
                         if (voices[i].active && voices[i].channel == ch) {
-                            OPL_SetVoiceVolume(i, voices[i].velocity, val);
+                            AL_SetVoiceVolume(i);
                         }
                     }
                     break;
@@ -358,7 +491,7 @@ static void ProcessMIDIEvent(midi_event_t *event) {
         case MIDI_EVENT_PROGRAM_CHANGE: {
             int ch = event->data.channel.channel;
             int prog = event->data.channel.param1;
-            channels[ch].instrument = prog;
+            channels[ch].Timbre = prog;
             break;
         }
 
@@ -580,10 +713,12 @@ bool I_Music_Init(void) {
 
     // Initialize channels
     for (int i = 0; i < 16; i++) {
-        channels[i].instrument = 0;
+        channels[i].Timbre = 0;
         channels[i].volume = 127;
         channels[i].pitchbend = 0;
         channels[i].pan = 64;
+        channels[i].KeyOffset = 0;
+        channels[i].KeyDetune = 0;
     }
 
     // NOTE: Don't register music generator here - do it when music starts
@@ -658,19 +793,6 @@ bool I_Music_PlayMIDI(const char *filename, bool loop) {
         return false;
     }
 
-    // Debug: Print first 8 bytes of MIDI buffer (header)
-    printf("I_Music_PlayMIDI: MIDI header bytes: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-           midiBuffer[0], midiBuffer[1], midiBuffer[2], midiBuffer[3],
-           midiBuffer[4], midiBuffer[5], midiBuffer[6], midiBuffer[7]);
-    // Debug: Print bytes 8-15 (rest of header + start of first track)
-    printf("I_Music_PlayMIDI: Bytes 8-15: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-           midiBuffer[8], midiBuffer[9], midiBuffer[10], midiBuffer[11],
-           midiBuffer[12], midiBuffer[13], midiBuffer[14], midiBuffer[15]);
-    // Debug: Print bytes 16-23 (should include MTrk)
-    printf("I_Music_PlayMIDI: Bytes 16-23: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-           midiBuffer[16], midiBuffer[17], midiBuffer[18], midiBuffer[19],
-           midiBuffer[20], midiBuffer[21], midiBuffer[22], midiBuffer[23]);
-
     // Write to temp file on SD card so MIDI loader can read it
     const char *tempPath = "/duke3d/temp.mid";
     
@@ -688,22 +810,6 @@ bool I_Music_PlayMIDI(const char *filename, bool loop) {
     size_t written = fwrite(midiBuffer, 1, fileSize, tempFile);
     fflush(tempFile);
     fclose(tempFile);
-    
-    // Verify the temp file was written correctly
-    FILE *verifyFile = fopen(tempPath, "rb");
-    if (verifyFile) {
-        uint8_t verifyBuf[24];
-        size_t verifyRead = fread(verifyBuf, 1, 24, verifyFile);
-        fclose(verifyFile);
-        printf("I_Music_PlayMIDI: Temp file verify (%zu bytes): %02X %02X %02X %02X %02X %02X %02X %02X\n",
-               verifyRead, verifyBuf[0], verifyBuf[1], verifyBuf[2], verifyBuf[3],
-               verifyBuf[4], verifyBuf[5], verifyBuf[6], verifyBuf[7]);
-        printf("I_Music_PlayMIDI: Temp bytes 14-21: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-               verifyBuf[14], verifyBuf[15], verifyBuf[16], verifyBuf[17],
-               verifyBuf[18], verifyBuf[19], verifyBuf[20], verifyBuf[21]);
-    } else {
-        printf("I_Music_PlayMIDI: Failed to verify temp file!\n");
-    }
     
     psram_free(midiBuffer);
 
@@ -764,10 +870,12 @@ bool I_Music_PlayMIDI(const char *filename, bool loop) {
 
     // Reset channels to defaults
     for (int i = 0; i < 16; i++) {
-        channels[i].instrument = 0;
+        channels[i].Timbre = 0;
         channels[i].volume = 127;
         channels[i].pitchbend = 0;
         channels[i].pan = 64;
+        channels[i].KeyOffset = 0;
+        channels[i].KeyDetune = 0;
     }
 
     // Reset OPL chip and voices for clean start
@@ -776,9 +884,11 @@ bool I_Music_PlayMIDI(const char *filename, bool loop) {
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
         voices[i].active = false;
         voices[i].channel = 0;
-        voices[i].note = 0;
+        voices[i].key = 0;
         voices[i].velocity = 0;
-        voices[i].instrument = 0;
+        voices[i].timbre = -1;
+        voices[i].status = 0;
+        voices[i].pitchleft = 0;
         OPL_Write(0xB0 + i, 0);  // Key off
     }
 
@@ -808,7 +918,7 @@ void I_Music_Stop(void) {
     // Stop all notes
     for (int i = 0; i < OPL_NUM_VOICES; i++) {
         if (voices[i].active) {
-            OPL_NoteOff(i);
+            AL_NoteOff(i);
         }
     }
 
@@ -866,11 +976,11 @@ bool I_Music_IsPlaying(void) {
 void I_Music_SetVolume(int volume) {
     if (volume < 0) volume = 0;
     if (volume > 255) volume = 255;
-    music_volume = volume / 2;  // Convert to 0-127 range
+    music_volume = volume;  // Keep full 0-255 range for more headroom
 }
 
 int I_Music_GetVolume(void) {
-    return music_volume * 2;
+    return music_volume;
 }
 
 void I_Music_RegisterTimbreBank(const uint8_t *timbres) {

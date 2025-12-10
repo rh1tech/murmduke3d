@@ -226,7 +226,7 @@ void CONFIG_SetDefaults( void )
    AmbienceToggle = 1;
    OpponentSoundToggle = 1;
    FXVolume = 64;
-   MusicVolume = 64;
+   MusicVolume = 156;  // ~60% volume (0-255 range)
    FXDevice = SoundScape;
    MusicDevice = -1;
    ReverseStereo = 0;

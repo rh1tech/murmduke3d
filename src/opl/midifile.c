@@ -508,13 +508,7 @@ static boolean ReadTrackHeader(midi_track_t *track, FILE *stream)
     size_t records_read;
     chunk_header_t chunk_header;
 
-    long pos_before = ftell(stream);
     records_read = fread(&chunk_header, sizeof(chunk_header_t), 1, stream);
-
-    stderr_print("ReadTrackHeader: pos=%ld, read=%zu, id=%c%c%c%c\n", 
-                 pos_before, records_read,
-                 chunk_header.chunk_id[0], chunk_header.chunk_id[1],
-                 chunk_header.chunk_id[2], chunk_header.chunk_id[3]);
 
     if (records_read < 1)
     {
