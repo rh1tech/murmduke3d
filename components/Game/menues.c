@@ -33,6 +33,9 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "SDL.h"
 #include "premap.h"
 #include "display.h"
+#ifdef RP2350_PSRAM
+#include "psram_sections.h"
+#endif
 
 static const char* TAG = "menues";
 
@@ -48,6 +51,12 @@ EXT_RAM_ATTR static char menuname[256][17];
 
 // JK - keyMode for menu key binding mode (ESP32 port addition)
 int keyMode = 0;
+
+// Static buffer to avoid stack overflow from scriptptrs[MAXSCRIPTSIZE]
+// Place in PSRAM to avoid consuming SRAM heap
+#ifdef RP2350_PSRAM
+static char savegame_scriptptrs[MAXSCRIPTSIZE] __psram_bss("savegame_scriptptrs");
+#endif
 
 // File tree info
 //
@@ -227,7 +236,11 @@ int loadplayer(int8_t spot)
      short k,music_changed;
      char  fn[] = "game0.sav";
      char  mpfn[] = "gameA_00.sav";
+#ifdef RP2350_PSRAM
+     char  *fnptr, *scriptptrs = savegame_scriptptrs;
+#else
      char  *fnptr, scriptptrs[MAXSCRIPTSIZE];
+#endif
      int32_t fil, bv, i, j, x;
      int32 nump;
 
@@ -558,7 +571,11 @@ int saveplayer(int8_t spot)
      int32_t i, j;
      char  fn[] = "game0.sav";
      char  mpfn[] = "gameA_00.sav";
+#ifdef RP2350_PSRAM
+     char  *fnptr, *scriptptrs = savegame_scriptptrs;
+#else
      char  *fnptr,scriptptrs[MAXSCRIPTSIZE];
+#endif
          FILE *fil;
      int32_t bv = BYTEVERSION;
 	 char  fullpathsavefilename[16];

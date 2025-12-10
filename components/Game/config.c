@@ -110,7 +110,11 @@ void CONFIG_GetSetupFilename( void )
 		FILE *fp = NULL;
 
 	   //Yes
+#ifdef RP2350_PSRAM
+		sprintf(setupfilename, "%s/%s", getGameDir(), SETUPFILENAME);
+#else
 		sprintf(setupfilename, "%s\\%s", getGameDir(), SETUPFILENAME);
+#endif
 		SDL_LockDisplay();
 		// let's make sure it's actually there
 		fp = fopen(setupfilename, "r");
@@ -601,8 +605,17 @@ void readsavenames(void)
 
 //int32 dukever13;
 
+#ifdef RP2350_PSRAM
+// Forward declaration
+void CONFIG_ReadSetup_RP2350(void);
+#endif
+
 void CONFIG_ReadSetup( void )
 {
+#ifdef RP2350_PSRAM
+   CONFIG_ReadSetup_RP2350();
+   return;
+#else
    int32 dummy;
    char  commmacro[] = COMMMACRO;
    FILE* setup_file_hdl;
@@ -802,6 +815,7 @@ void CONFIG_ReadSetup( void )
 			}
    }   
    setupread = 1;
+#endif  // !RP2350_PSRAM
    }
 
 /*
@@ -812,8 +826,17 @@ void CONFIG_ReadSetup( void )
 ===================
 */
 
+#ifdef RP2350_PSRAM
+// Forward declaration
+void CONFIG_WriteSetup_RP2350(void);
+#endif
+
 void CONFIG_WriteSetup( void )
    {
+#ifdef RP2350_PSRAM
+   CONFIG_WriteSetup_RP2350();
+   return;
+#else
    int32 dummy, i;
    char  commmacro[] = COMMMACRO;
 
@@ -908,5 +931,163 @@ void CONFIG_WriteSetup( void )
 
    SCRIPT_Save (scripthandle, setupfilename);
    SCRIPT_Free (scripthandle);
+#endif  // !RP2350_PSRAM
    }
+
+#ifdef RP2350_PSRAM
+/*
+===================
+= RP2350 Simple Config Implementation
+= Uses direct file I/O instead of SCRIPT library to avoid malloc exhaustion
+===================
+*/
+
+#define RP2350_CONFIG_MAGIC 0x44554B45  // "DUKE"
+#define RP2350_CONFIG_VERSION 1
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    int32 FXVolume;
+    int32 MusicVolume;
+    int32 SoundToggle;
+    int32 MusicToggle;
+    int32 VoiceToggle;
+    int32 AmbienceToggle;
+    int32 screen_size;
+    int32 brightness;
+    int32 auto_run;
+    int32 crosshair;
+    int32 auto_aim;
+    int32 mouseflip;
+    int32 detail;
+    int32 shadows;
+    int32 screen_tilting;
+    int32 fta_on;
+    int32 showcinematics;
+    int32 hideweapon;
+    int32 showweapons;
+    int32 weaponautoswitch;
+    int32 tickrate;
+    int32 mouseSensitivity_X;
+    int32 mouseSensitivity_Y;
+    char playerName[32];
+} rp2350_config_t;
+
+static const char* rp2350_config_filename = "duke3d.bin";
+
+void CONFIG_ReadSetup_RP2350(void)
+{
+    FILE *fp;
+    rp2350_config_t cfg;
+    
+    printf("CONFIG_ReadSetup_RP2350...\n");
+    
+    // Set defaults first
+    CONFIG_SetDefaults();
+    
+    fp = fopen(rp2350_config_filename, "rb");
+    if (!fp) {
+        printf("Config file %s not found, using defaults\n", rp2350_config_filename);
+        setupread = 1;
+        return;
+    }
+    
+    if (fread(&cfg, sizeof(cfg), 1, fp) != 1) {
+        printf("Config file read error, using defaults\n");
+        fclose(fp);
+        setupread = 1;
+        return;
+    }
+    fclose(fp);
+    
+    if (cfg.magic != RP2350_CONFIG_MAGIC || cfg.version != RP2350_CONFIG_VERSION) {
+        printf("Config file version mismatch, using defaults\n");
+        setupread = 1;
+        return;
+    }
+    
+    // Apply loaded settings
+    FXVolume = cfg.FXVolume;
+    MusicVolume = cfg.MusicVolume;
+    SoundToggle = cfg.SoundToggle;
+    MusicToggle = cfg.MusicToggle;
+    VoiceToggle = cfg.VoiceToggle;
+    AmbienceToggle = cfg.AmbienceToggle;
+    ud.screen_size = cfg.screen_size;
+    ud.brightness = cfg.brightness;
+    ud.auto_run = cfg.auto_run;
+    ud.crosshair = cfg.crosshair;
+    ud.auto_aim = cfg.auto_aim;
+    ud.mouseflip = cfg.mouseflip;
+    ud.detail = cfg.detail;
+    ud.shadows = cfg.shadows;
+    ud.screen_tilting = cfg.screen_tilting;
+    ud.fta_on = cfg.fta_on;
+    ud.showcinematics = cfg.showcinematics;
+    ud.hideweapon = cfg.hideweapon;
+    ud.showweapons = cfg.showweapons;
+    ud.weaponautoswitch = cfg.weaponautoswitch;
+    ud.tickrate = cfg.tickrate;
+    CONTROL_SetMouseSensitivity_X(cfg.mouseSensitivity_X);
+    CONTROL_SetMouseSensitivity_Y(cfg.mouseSensitivity_Y);
+    strncpy(myname, cfg.playerName, sizeof(myname)-1);
+    myname[sizeof(myname)-1] = '\0';
+    
+    printf("Config loaded successfully\n");
+    setupread = 1;
+}
+
+void CONFIG_WriteSetup_RP2350(void)
+{
+    FILE *fp;
+    rp2350_config_t cfg;
+    
+    if (!setupread) return;
+    
+    printf("CONFIG_WriteSetup_RP2350...\n");
+    
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.magic = RP2350_CONFIG_MAGIC;
+    cfg.version = RP2350_CONFIG_VERSION;
+    cfg.FXVolume = FXVolume;
+    cfg.MusicVolume = MusicVolume;
+    cfg.SoundToggle = SoundToggle;
+    cfg.MusicToggle = MusicToggle;
+    cfg.VoiceToggle = VoiceToggle;
+    cfg.AmbienceToggle = AmbienceToggle;
+    cfg.screen_size = ud.screen_size;
+    cfg.brightness = ud.brightness;
+    cfg.auto_run = ud.auto_run;
+    cfg.crosshair = ud.crosshair;
+    cfg.auto_aim = ud.auto_aim;
+    cfg.mouseflip = ud.mouseflip;
+    cfg.detail = ud.detail;
+    cfg.shadows = ud.shadows;
+    cfg.screen_tilting = ud.screen_tilting;
+    cfg.fta_on = ud.fta_on;
+    cfg.showcinematics = ud.showcinematics;
+    cfg.hideweapon = ud.hideweapon;
+    cfg.showweapons = ud.showweapons;
+    cfg.weaponautoswitch = ud.weaponautoswitch;
+    cfg.tickrate = ud.tickrate;
+    cfg.mouseSensitivity_X = CONTROL_GetMouseSensitivity_X();
+    cfg.mouseSensitivity_Y = CONTROL_GetMouseSensitivity_Y();
+    strncpy(cfg.playerName, myname, sizeof(cfg.playerName)-1);
+    cfg.playerName[sizeof(cfg.playerName)-1] = '\0';
+    
+    fp = fopen(rp2350_config_filename, "wb");
+    if (!fp) {
+        printf("Failed to open config file for writing\n");
+        return;
+    }
+    
+    if (fwrite(&cfg, sizeof(cfg), 1, fp) != 1) {
+        printf("Failed to write config file\n");
+    } else {
+        printf("Config saved successfully\n");
+    }
+    fclose(fp);
+}
+#endif
 

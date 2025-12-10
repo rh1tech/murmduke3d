@@ -747,7 +747,11 @@ int32_t TCkopen4load(const char  *filename, int32_t readfromGRP)
     
 	if(game_dir[0] != '\0' && !readfromGRP)
 	{
+#ifdef RP2350_PSRAM
+		sprintf(fullfilename, "%s/%s", game_dir, filename);
+#else
 		sprintf(fullfilename, "%s\\%s", game_dir, filename);
+#endif
 		if (!SafeFileExists(fullfilename)) // try root
 			sprintf(fullfilename, "%s", filename);
 	}
