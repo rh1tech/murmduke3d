@@ -288,6 +288,7 @@ int FX_PlayVOC3D(uint8_t *ptr, int32_t pitchoffset, int32_t angle, int32_t dista
     right = (right * vol) / 255;
     
     uint32_t length = get_voc_data_length(ptr);
+    
     return I_PicoSound_PlayVOC(ptr, length, 0, pitchoffset, vol, left, right,
                                priority, callbackval, false, 0, 0);
 #endif

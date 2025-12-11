@@ -67,9 +67,9 @@ typedef struct voice_s {
     bool is_signed;                // Is sample signed?
     bool is_adpcm;                 // Is sample ADPCM compressed?
     
-    // ADPCM decoder state
-    int16_t adpcm_pred;            // ADPCM predictor
-    int adpcm_index;               // ADPCM step index
+    // Creative ADPCM decoder state
+    uint8_t adpcm_pred;            // ADPCM predictor (0-255, unsigned)
+    int adpcm_step;                // ADPCM step (0-3)
     
     uint32_t callback_val;         // Value to pass to callback
     
@@ -104,46 +104,67 @@ static volatile int pending_callback_tail = 0;
 static volatile bool processing_callbacks = false;
 
 //=============================================================================
-// Creative ADPCM Decoder (VOC codec 4 = 4-bit ADPCM)
+// Creative ADPCM Decoder (VOC codec 4 = Creative 4-bit ADPCM)
+// Using DOSBox's table-based algorithm which is known to work correctly
 //=============================================================================
 
-// ADPCM step table for Creative 4-bit ADPCM
-static const int8_t adpcm_index_table[8] = {
-    -1, -1, -1, -1, 2, 4, 6, 8
+// DOSBox's ScaleMap for 4-bit ADPCM (64 entries = 4 steps x 16 nibble values)
+static const int8_t adpcm4_scale_map[64] = {
+    0,  1,  2,  3,  4,  5,  6,  7,  0,  -1,  -2,  -3,  -4,  -5,  -6,  -7,
+    1,  3,  5,  7,  9, 11, 13, 15, -1,  -3,  -5,  -7,  -9, -11, -13, -15,
+    2,  6, 10, 14, 18, 22, 26, 30, -2,  -6, -10, -14, -18, -22, -26, -30,
+    4, 12, 20, 28, 36, 44, 52, 60, -4, -12, -20, -28, -36, -44, -52, -60
 };
 
-static const int16_t adpcm_step_table[89] = {
-    7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
-    19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
-    50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
-    130, 143, 157, 173, 190, 209, 230, 253, 279, 307,
-    337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
-    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
-    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
-    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
-    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+// DOSBox's AdjustMap for 4-bit ADPCM - use signed for proper math
+// Values are: 0 (no change), +16 (step up), -16 (step down)
+static const int8_t adpcm4_adjust_map[64] = {
+      0,  0,  0,  0,  0, 16, 16, 16,
+      0,  0,  0,  0,  0, 16, 16, 16,
+    -16,  0,  0,  0,  0, 16, 16, 16,
+    -16,  0,  0,  0,  0, 16, 16, 16,
+    -16,  0,  0,  0,  0, 16, 16, 16,
+    -16,  0,  0,  0,  0, 16, 16, 16,
+    -16,  0,  0,  0,  0,  0,  0,  0,
+    -16,  0,  0,  0,  0,  0,  0,  0
 };
 
-// Decode one nibble of Creative 4-bit ADPCM
-static int16_t decode_adpcm_nibble(int nibble, int16_t *pred, int *index) {
-    int step = adpcm_step_table[*index];
-    int diff = step >> 3;
+// Debug counter for ADPCM decoding
+static int adpcm_debug_count = 0;
+
+// Decode one nibble using DOSBox's table-based algorithm
+// reference is 0-255 (unsigned 8-bit sample), stepsize is 0, 16, 32, or 48
+static uint8_t decode_creative_adpcm_nibble(int nibble, uint8_t *reference, int *stepsize) {
+    // Index into 64-entry table: nibble (0-15) + stepsize (0, 16, 32, 48)
+    int i = nibble + *stepsize;
+    if (i < 0) i = 0;
+    if (i > 63) i = 63;
     
-    if (nibble & 1) diff += step >> 2;
-    if (nibble & 2) diff += step >> 1;
-    if (nibble & 4) diff += step;
-    if (nibble & 8) diff = -diff;
+    int old_step = *stepsize;
+    int old_ref = *reference;
     
-    int32_t new_pred = *pred + diff;
-    if (new_pred > 32767) new_pred = 32767;
-    if (new_pred < -32768) new_pred = -32768;
-    *pred = (int16_t)new_pred;
+    // Update stepsize using adjust map (signed, so -16 works correctly)
+    *stepsize = *stepsize + adpcm4_adjust_map[i];
     
-    *index += adpcm_index_table[nibble & 7];
-    if (*index < 0) *index = 0;
-    if (*index > 88) *index = 88;
+    // Clamp stepsize to valid range (0, 16, 32, 48)
+    if (*stepsize < 0) *stepsize = 0;
+    if (*stepsize > 48) *stepsize = 48;
     
-    return *pred;
+    // Update reference sample
+    int new_ref = (int)*reference + adpcm4_scale_map[i];
+    if (new_ref < 0) new_ref = 0;
+    if (new_ref > 255) new_ref = 255;
+    *reference = (uint8_t)new_ref;
+    
+    // Debug first 20 samples
+    if (adpcm_debug_count < 20) {
+        printf("ADPCM[%d]: nib=%d i=%d ref:%d->%d step:%d->%d scale=%d adj=%d\n",
+               adpcm_debug_count, nibble, i, old_ref, *reference, old_step, *stepsize,
+               adpcm4_scale_map[i], adpcm4_adjust_map[i]);
+        adpcm_debug_count++;
+    }
+    
+    return *reference;
 }
 
 static struct audio_format audio_format = {
@@ -262,8 +283,8 @@ static void decompress_buffer(voice_t *v) {
         if (v->looping && v->loop_start) {
             v->data = v->loop_start;
             if (v->is_adpcm) {
-                v->adpcm_pred = 0;
-                v->adpcm_index = 0;
+                v->adpcm_pred = 128;  // Placeholder (first byte will replace)
+                v->adpcm_step = -1;   // -1 = needs to read first byte
             }
         } else {
             v->buffer_size = 0;
@@ -274,21 +295,41 @@ static void decompress_buffer(voice_t *v) {
     int samples_decoded = 0;
     
     if (v->is_adpcm) {
-        // ADPCM: decode up to VOICE_BUFFER_SAMPLES
+        // Creative 4-bit ADPCM: first byte is raw sample (initialization)
+        // Check if we need to read initial sample (-1 means uninitialized)
+        if (v->adpcm_step < 0 && v->data < v->data_end) {
+            // First byte is the initial raw sample (reference)
+            v->adpcm_pred = *v->data++;
+            // stepsize starts at 0 (DOSBox uses 0, 16, 32, 48 for steps)
+            v->adpcm_step = 0;
+            // Reset debug counter for new sound
+            adpcm_debug_count = 0;
+            printf("ADPCM START: initial ref=%d\n", v->adpcm_pred);
+            // Print first 16 bytes of data for analysis
+            printf("ADPCM DATA:");
+            for (int db = 0; db < 16 && v->data + db < v->data_end; db++) {
+                printf(" %02X", v->data[db]);
+            }
+            printf("\n");
+        }
+        
+        // Decode ADPCM: each byte contains 2 nibbles (2 samples)
+        // HIGH nibble first, then LOW nibble (Creative/DOSBox order)
         while (samples_decoded < VOICE_BUFFER_SAMPLES && v->data < v->data_end) {
             uint8_t byte = *v->data++;
             
-            // Low nibble
-            int nibble = byte & 0x0F;
-            int16_t sample = decode_adpcm_nibble(nibble, &v->adpcm_pred, &v->adpcm_index);
-            v->buffer[samples_decoded++] = sample >> 8;
+            // HIGH nibble first (bits 4-7)
+            int nibble = (byte >> 4) & 0x0F;
+            uint8_t sample = decode_creative_adpcm_nibble(nibble, &v->adpcm_pred, &v->adpcm_step);
+            // Convert unsigned 0-255 to signed -128 to 127
+            v->buffer[samples_decoded++] = (int8_t)(sample - 128);
             
             if (samples_decoded >= VOICE_BUFFER_SAMPLES) break;
             
-            // High nibble
-            nibble = (byte >> 4) & 0x0F;
-            sample = decode_adpcm_nibble(nibble, &v->adpcm_pred, &v->adpcm_index);
-            v->buffer[samples_decoded++] = sample >> 8;
+            // LOW nibble (bits 0-3)
+            nibble = byte & 0x0F;
+            sample = decode_creative_adpcm_nibble(nibble, &v->adpcm_pred, &v->adpcm_step);
+            v->buffer[samples_decoded++] = (int8_t)(sample - 128);
         }
     } else {
         // PCM: copy up to VOICE_BUFFER_SAMPLES
@@ -401,6 +442,8 @@ static bool parse_voc(const uint8_t *data, uint32_t length,
                     uint8_t freq_div = block_data[0];
                     uint8_t codec = block_data[1];
                     
+                    printf("VOC block 1: freq_div=%d codec=%d size=%u\n", freq_div, codec, (unsigned)block_size);
+                    
                     // Support codec 0 (PCM) and codec 4 (4-bit ADPCM)
                     if (codec != 0 && codec != 4) {
                         printf("VOC: Unsupported codec %d\n", codec);
@@ -422,7 +465,13 @@ static bool parse_voc(const uint8_t *data, uint32_t length,
                     uint8_t channels = block_data[5];
                     uint16_t codec = read_le16(block_data + 6);
                     
-                    // Support codec 0 (PCM) and codec 4 (4-bit ADPCM)
+                    printf("VOC block 9: rate=%u bits=%d ch=%d codec=%d size=%u\n", 
+                           (unsigned)*sample_rate, bits, channels, codec, (unsigned)block_size);
+                    
+                    // Block type 9 codecs:
+                    // 0 = 8-bit unsigned PCM
+                    // 4 = 16-bit signed PCM (NOT ADPCM!)
+                    // ADPCM is only valid for block type 1
                     if (codec != 0 && codec != 4) {
                         printf("VOC: Unsupported codec %d\n", codec);
                         break;
@@ -432,8 +481,9 @@ static bool parse_voc(const uint8_t *data, uint32_t length,
                         break;
                     }
                     
-                    *out_codec = (uint8_t)codec;
-                    *is_16bit = (bits == 16);
+                    // For block type 9, codec 4 = 16-bit signed PCM, NOT ADPCM
+                    *out_codec = 0;  // Always PCM for block type 9
+                    *is_16bit = (bits == 16) || (codec == 4);
                     *sample_data = block_data + 12;
                     *sample_length = block_size - 12;
                     return true;
@@ -732,12 +782,22 @@ int I_PicoSound_PlayVOC(const uint8_t *data, uint32_t length,
     
     // Parse VOC header
     if (!parse_voc(data, length, &sample_data, &sample_length, &sample_rate, &is_16bit, &codec)) {
+        // Debug: show what data we got if VOC parsing fails
+        if (callbackval == 109) {  // SHOTGUN_FIRE
+            printf("VOC PARSE FAIL: first20='%.20s'\n", (const char*)data);
+        }
         // Fallback: treat entire data as raw 8-bit unsigned samples
         sample_data = data;
         sample_length = length;
         sample_rate = samplerate > 0 ? samplerate : 11025;
         is_16bit = false;
         codec = 0;
+    } else {
+        // Debug: show parsed VOC info
+        if (callbackval == 109) {  // SHOTGUN_FIRE
+            printf("VOC OK: rate=%u len=%u codec=%d\n", 
+                   (unsigned)sample_rate, (unsigned)sample_length, codec);
+        }
     }
     
     // For ADPCM, we need to handle it specially
@@ -763,10 +823,10 @@ int I_PicoSound_PlayVOC(const uint8_t *data, uint32_t length,
     v->is_signed = false;  // VOC 8-bit is unsigned
     v->is_adpcm = is_adpcm;
     
-    // Initialize ADPCM state
+    // Initialize Creative ADPCM state
     if (is_adpcm) {
-        v->adpcm_pred = 0;
-        v->adpcm_index = 0;
+        v->adpcm_pred = 128;  // Placeholder (first byte will replace)
+        v->adpcm_step = -1;   // -1 = needs to read first byte
     }
     
     // Decompress first buffer block
