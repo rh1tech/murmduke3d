@@ -391,11 +391,13 @@ void Ps2Kbd_Mrmltr::tick() {
 // TODO Error checking and reporting
 void Ps2Kbd_Mrmltr::init_gpio() {
     // init KBD pins to input
-    gpio_init(_base_gpio);     // Data
-    gpio_init(_base_gpio + 1); // Clock
+    // Pin layout: CLK is _base_gpio - 1, DATA is _base_gpio
+    // M1: CLK=0, DATA=1  M2: CLK=2, DATA=3
+    gpio_init(_base_gpio);         // Data
+    gpio_init(_base_gpio - 1);     // Clock
     // with pull up
     gpio_pull_up(_base_gpio);
-    gpio_pull_up(_base_gpio + 1);
+    gpio_pull_up(_base_gpio - 1);
     // get a state machine
     _sm = pio_claim_unused_sm(_pio, true);
     // reserve program space in SM memory
@@ -405,16 +407,15 @@ void Ps2Kbd_Mrmltr::init_gpio() {
     uint offset = pio_add_program(_pio, &ps2kbd_program);
 #endif
     // Set pin directions base
-    pio_sm_set_consecutive_pindirs(_pio, _sm, _base_gpio, 2, false);
+    pio_sm_set_consecutive_pindirs(_pio, _sm, _base_gpio - 1, 2, false);
     // program the start and wrap SM registers
 #if KBD_CLOCK_PIN == 2
     pio_sm_config c = m2ps2kbd_program_get_default_config(offset);
 #else
     pio_sm_config c = ps2kbd_program_get_default_config(offset);
 #endif
-    // Set the base input pin. pin index 0 is DAT, index 1 is CLK  // Murmulator: 0->CLK 1->DAT ( _base_gpio + 1)
-    //  sm_config_set_in_pins(&c, _base_gpio);
-    sm_config_set_in_pins(&c, _base_gpio + 1);
+    // Set the base input pin for DATA
+    sm_config_set_in_pins(&c, _base_gpio);
     // Shift 8 bits to the right, autopush enabled
     sm_config_set_in_shift(&c, true, true, 10);
     // Deeper FIFO as we're not doing any TX

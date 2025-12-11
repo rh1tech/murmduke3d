@@ -60,6 +60,9 @@ message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_S
 message(STATUS "SD pins: SCK=${SD_PIN_SCK} MOSI=${SD_PIN_MOSI} MISO=${SD_PIN_MISO} CS=${SD_PIN_CS}")
 message(STATUS "HDMI base: ${HDMI_BASE_PIN}, PS/2: CLK=${PS2_CLK_PIN} DATA=${PS2_DATA_PIN}")
 
+# Make PS2 pins available to subdirectories
+set(PS2_CLK_PIN ${PS2_CLK_PIN} CACHE INTERNAL "PS/2 Clock Pin")
+
 include(pico_sdk_import.cmake)
 
 # Import pico-extras for audio_i2s library (for future sound support)

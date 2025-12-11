@@ -4,7 +4,7 @@ A port of Duke Nukem 3D to the Raspberry Pi RP2350 microcontroller with PSRAM su
 
 ## Features
 
-- Runs on RP2350A and RP2350B with 8MB PSRAM
+- Runs on RP2350A and RP2350B with 8MB QSPI PSRAM
 - HDMI video output (custom driver)
 - PS/2 keyboard support
 - SD card for game data (FAT filesystem)
@@ -13,7 +13,7 @@ A port of Duke Nukem 3D to the Raspberry Pi RP2350 microcontroller with PSRAM su
 
 ## Hardware Requirements
 
-MurmDuke3D requires a **Pico 2** (RP2350) with **8MB PSRAM**. It will not run on Pico 1 (RP2040).
+MurmDuke3D requires a **Pico 2** (RP2350) with **8MB QSPI PSRAM**. It will **not run** on Pico 1 (RP2040).
 
 ### Supported Hardware Platforms
 
@@ -47,7 +47,7 @@ M1 and M2 refer to hardware revisions of Murmulator and FRANK boards. Both varia
 | PS/2 DATA | 1       | 3       |
 | I2S DATA  | 26      | 9       |
 | I2S CLK   | 27      | 10      |
-| PSRAM CS  | 19      | 47      |
+| PSRAM CS  | 19 or 47| 8 or 47 |
 
 Both Murmulator and FRANK use **TDA1387** DAC for I2S audio output by default.
 
