@@ -129,9 +129,6 @@ static const int8_t adpcm4_adjust_map[64] = {
     -16,  0,  0,  0,  0,  0,  0,  0
 };
 
-// Debug counter for ADPCM decoding
-static int adpcm_debug_count = 0;
-
 // Decode one nibble using DOSBox's table-based algorithm
 // reference is 0-255 (unsigned 8-bit sample), stepsize is 0, 16, 32, or 48
 static uint8_t decode_creative_adpcm_nibble(int nibble, uint8_t *reference, int *stepsize) {
@@ -139,9 +136,6 @@ static uint8_t decode_creative_adpcm_nibble(int nibble, uint8_t *reference, int 
     int i = nibble + *stepsize;
     if (i < 0) i = 0;
     if (i > 63) i = 63;
-    
-    int old_step = *stepsize;
-    int old_ref = *reference;
     
     // Update stepsize using adjust map (signed, so -16 works correctly)
     *stepsize = *stepsize + adpcm4_adjust_map[i];
@@ -155,14 +149,6 @@ static uint8_t decode_creative_adpcm_nibble(int nibble, uint8_t *reference, int 
     if (new_ref < 0) new_ref = 0;
     if (new_ref > 255) new_ref = 255;
     *reference = (uint8_t)new_ref;
-    
-    // Debug first 20 samples
-    if (adpcm_debug_count < 20) {
-        printf("ADPCM[%d]: nib=%d i=%d ref:%d->%d step:%d->%d scale=%d adj=%d\n",
-               adpcm_debug_count, nibble, i, old_ref, *reference, old_step, *stepsize,
-               adpcm4_scale_map[i], adpcm4_adjust_map[i]);
-        adpcm_debug_count++;
-    }
     
     return *reference;
 }
@@ -302,15 +288,6 @@ static void decompress_buffer(voice_t *v) {
             v->adpcm_pred = *v->data++;
             // stepsize starts at 0 (DOSBox uses 0, 16, 32, 48 for steps)
             v->adpcm_step = 0;
-            // Reset debug counter for new sound
-            adpcm_debug_count = 0;
-            printf("ADPCM START: initial ref=%d\n", v->adpcm_pred);
-            // Print first 16 bytes of data for analysis
-            printf("ADPCM DATA:");
-            for (int db = 0; db < 16 && v->data + db < v->data_end; db++) {
-                printf(" %02X", v->data[db]);
-            }
-            printf("\n");
         }
         
         // Decode ADPCM: each byte contains 2 nibbles (2 samples)
@@ -442,8 +419,6 @@ static bool parse_voc(const uint8_t *data, uint32_t length,
                     uint8_t freq_div = block_data[0];
                     uint8_t codec = block_data[1];
                     
-                    printf("VOC block 1: freq_div=%d codec=%d size=%u\n", freq_div, codec, (unsigned)block_size);
-                    
                     // Support codec 0 (PCM) and codec 4 (4-bit ADPCM)
                     if (codec != 0 && codec != 4) {
                         printf("VOC: Unsupported codec %d\n", codec);
@@ -464,9 +439,6 @@ static bool parse_voc(const uint8_t *data, uint32_t length,
                     uint8_t bits = block_data[4];
                     uint8_t channels = block_data[5];
                     uint16_t codec = read_le16(block_data + 6);
-                    
-                    printf("VOC block 9: rate=%u bits=%d ch=%d codec=%d size=%u\n", 
-                           (unsigned)*sample_rate, bits, channels, codec, (unsigned)block_size);
                     
                     // Block type 9 codecs:
                     // 0 = 8-bit unsigned PCM
@@ -782,22 +754,12 @@ int I_PicoSound_PlayVOC(const uint8_t *data, uint32_t length,
     
     // Parse VOC header
     if (!parse_voc(data, length, &sample_data, &sample_length, &sample_rate, &is_16bit, &codec)) {
-        // Debug: show what data we got if VOC parsing fails
-        if (callbackval == 109) {  // SHOTGUN_FIRE
-            printf("VOC PARSE FAIL: first20='%.20s'\n", (const char*)data);
-        }
         // Fallback: treat entire data as raw 8-bit unsigned samples
         sample_data = data;
         sample_length = length;
         sample_rate = samplerate > 0 ? samplerate : 11025;
         is_16bit = false;
         codec = 0;
-    } else {
-        // Debug: show parsed VOC info
-        if (callbackval == 109) {  // SHOTGUN_FIRE
-            printf("VOC OK: rate=%u len=%u codec=%d\n", 
-                   (unsigned)sample_rate, (unsigned)sample_length, codec);
-        }
     }
     
     // For ADPCM, we need to handle it specially
