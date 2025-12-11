@@ -35,6 +35,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "display.h"
 #ifdef RP2350_PSRAM
 #include "psram_sections.h"
+#include "anim_streaming.h"
 // Use raw (uncompressed) file I/O for RP2350 to avoid cache/memory issues
 #define kdfread kdfread_raw
 #define dfwrite dfwrite_raw
@@ -4673,11 +4674,88 @@ int32_t lastanimhack=0;
 void playanm(char  *fn,uint8_t  t)
 {
 #ifdef RP2350_PSRAM
-    /* Skip animations on RP2350 - not enough memory for animation buffers */
-    printf("Skipping animation %s (RP2350 memory constraints)\n", fn);
-    return;
-#endif
+    /* Use streaming animation player on RP2350 */
+    
+    uint8_t *palptr;
+    int32_t i, j, k, numframes=0;
 
+    if(t != 7 && t != 9 && t != 10 && t != 11)
+        KB_FlushKeyboardQueue();
+
+    if( KB_KeyWaiting() )
+    {
+        FX_StopAllSounds();
+        return;
+    }
+
+    // Open animation file for streaming
+    if (!AnimStream_Open(fn)) {
+        printf("playanm: Failed to open %s for streaming\n", fn);
+        return;
+    }
+
+    numframes = AnimStream_NumFrames();
+    
+    tiles[MAXTILES-3-t].lock = 219+t;
+    tiles[MAXTILES-3-t].dim.width = 200;
+    tiles[MAXTILES-3-t].dim.height = 320;
+
+    // Set up palette
+    palptr = AnimStream_GetPalette();
+    for(i=0;i<256;i++)
+    {
+        j = (i<<2); k = j-i;
+        tempbuf[j+0] = (palptr[k+2]>>2);
+        tempbuf[j+1] = (palptr[k+1]>>2);
+        tempbuf[j+2] = (palptr[k+0]>>2);
+        tempbuf[j+3] = 0;
+    }
+    VBE_setPalette(tempbuf);
+
+    ototalclock = totalclock + 10;
+    
+    printf("playanm: Starting loop for %d frames\n", numframes);
+
+    for(i=1;i<numframes;i++)
+    {
+       printf("playanm: frame %d, tc=%d, otc=%d\n", i, (int)totalclock, (int)ototalclock);
+       while(totalclock < ototalclock)
+       {
+          if( KB_KeyWaiting() )
+              goto ENDOFANIMLOOP_STREAM;
+          getpackets();
+       }
+
+       if(t == 10) ototalclock += 14;
+       else if(t == 9) ototalclock += 10;
+       else if(t == 7) ototalclock += 18;
+       else if(t == 6) ototalclock += 14;
+       else if(t == 5) ototalclock += 9;
+       else if(ud.volume_number == 3) ototalclock += 10;
+       else if(ud.volume_number == 2) ototalclock += 10;
+       else if(ud.volume_number == 1) ototalclock += 18;
+       else                           ototalclock += 10;
+
+       tiles[MAXTILES-3-t].data = AnimStream_DrawFrame(i);
+       rotatesprite(0<<16,0<<16,65536L,512,MAXTILES-3-t,0,0,2+4+8+16+64, 0,0,xdim-1,ydim-1);
+       nextpage();
+
+       if(t == 8) endanimvol41(i);
+       else if(t == 10) endanimvol42(i);
+       else if(t == 11) endanimvol43(i);
+       else if(t == 9) intro42animsounds(i);
+       else if(t == 7) intro4animsounds(i);
+       else if(t == 6) first4animsounds(i);
+       else if(t == 5) logoanimsounds(i);
+       else if(t < 4) endanimsounds(i);
+    }
+
+    ENDOFANIMLOOP_STREAM:
+    AnimStream_Close();
+    tiles[MAXTILES-3-t].lock = 1;
+    return;
+#else
+    /* Original non-streaming implementation */
     uint8_t  *animbuf, *palptr;
     int32_t i, j, k, length=0, numframes=0;
     int32 handle=-1;
@@ -4781,5 +4859,6 @@ ESP_LOGV(TAG, "nextpage");
 ESP_LOGV(TAG, "ANIM_FreeAnim");
     ANIM_FreeAnim ();
     tiles[MAXTILES-3-t].lock = 1;
+#endif /* !RP2350_PSRAM */
 }
 

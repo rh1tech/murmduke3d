@@ -141,6 +141,7 @@ add_executable(murmduke3d
     src/duke3d_rp2350.c
     src/compat.c
     src/psram_data.c
+    src/anim_streaming.c
     src/SDL/SDL_rp2350.c
     src/SDL/SDL_video_rp2350.c
     src/SDL/SDL_event_rp2350.c
