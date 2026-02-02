@@ -28,10 +28,16 @@ static SDL_Color palette_colors[256];
 
 /* FRAME_BUF in SRAM - HDMI reads from this for fast scanline access */
 /* Aligned for optimal DMA/memory access */
-static uint8_t FRAME_BUF[FRAME_SIZE] __attribute__((aligned(4)));
+/* Made non-static so welcome screen can share it */
+uint8_t FRAME_BUF[FRAME_SIZE] __attribute__((aligned(4)));
 
 /* Game render buffer in PSRAM */
 static uint8_t *vid_buffer = NULL;
+
+/* Accessor for welcome screen */
+uint8_t *get_display_framebuffer(void) {
+    return FRAME_BUF;
+}
 
 int SDL_LockSurface(SDL_Surface *surface) {
     return 0;

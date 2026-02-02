@@ -2495,9 +2495,15 @@ void gameexit(char  *msg)
     uninitgroupfile();
 
     unlink("duke3d.tmp");
-	
-    Error(EXIT_SUCCESS, "");
 
+#ifdef DUKE3D_RP2350
+    // On RP2350, return to welcome screen instead of exiting
+    // This allows main() to loop back to the GRP selection menu
+    printf("Returning to welcome screen...\n");
+    return;
+#else
+    Error(EXIT_SUCCESS, "");
+#endif
 }
 
 
@@ -8144,18 +8150,32 @@ void findGRPToUse(char * groupfilefullpath){
 
 #endif
 
+#ifdef DUKE3D_RP2350
+// Selected GRP filename from welcome screen
+extern const char *get_selected_grp(void);
+#endif
+
 static int load_duke3d_groupfile(void)
 {
 	// FIX_00032: Added multi base GRP manager. Use duke3d*.grp to handle multiple grp.
-    
+
 	char  groupfilefullpath[512];
     groupfilefullpath[0] = '\0';
-    
-    findGRPToUse(groupfilefullpath);
-    
+
+#ifdef DUKE3D_RP2350
+    // On RP2350, use GRP file selected from welcome screen
+    const char *selected = get_selected_grp();
+    if (selected && selected[0]) {
+        snprintf(groupfilefullpath, sizeof(groupfilefullpath), "%s/%s", getGameDir(), selected);
+        printf("Using GRP file from welcome screen: %s\n", groupfilefullpath);
+    } else
+#endif
+    {
+        findGRPToUse(groupfilefullpath);
+    }
+
     if (groupfilefullpath[0] == '\0')
         return false;
-	
 
         FixFilePath(groupfilefullpath);
 

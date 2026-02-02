@@ -75,6 +75,12 @@ project(murmduke3d C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+# Read version from version.txt
+file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" MURMDUKE_VERSION_RAW)
+string(STRIP "${MURMDUKE_VERSION_RAW}" MURMDUKE_VERSION_RAW)
+string(REGEX REPLACE "[ \t]+" "." MURMDUKE_VERSION "${MURMDUKE_VERSION_RAW}")
+message(STATUS "Version: ${MURMDUKE_VERSION}")
+
 pico_sdk_init()
 
 # Initialize pico-extras if available
@@ -152,6 +158,7 @@ set(OPL_SOURCES
 
 add_executable(murmduke3d
     src/main.c
+    src/welcome.c
     src/duke3d_rp2350.c
     src/compat.c
     src/psram_data.c
@@ -178,10 +185,13 @@ target_include_directories(murmduke3d PRIVATE
     components/audiolib
     drivers
     drivers/sdcard
+    drivers/ps2
 )
 
 target_compile_definitions(murmduke3d PRIVATE
     BOARD_${BOARD_VARIANT}
+    DBOARD_VARIANT="${BOARD_VARIANT}"
+    MURMDUKE_VERSION="${MURMDUKE_VERSION}"
     # CPU/PSRAM speed configuration
     CPU_CLOCK_MHZ=${CPU_SPEED}
     CPU_VOLTAGE=${CPU_VOLTAGE}
