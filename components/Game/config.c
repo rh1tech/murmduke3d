@@ -38,6 +38,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "scriplib.h"
 #include "build.h"
 #include "SDL.h"
+#include "mouse.h"
 
 #ifdef RP2350_PSRAM
 // Use raw (uncompressed) file I/O for RP2350 to match menues.c save format
@@ -228,6 +229,9 @@ int32 CONFIG_AnalogNameToNum( char  * func )
 
 void CONFIG_SetDefaults( void )
 {
+   // Initialize mouse defaults first (before config load can override)
+   MOUSE_Init();
+
    // sound
    SoundToggle = 1;
    MusicToggle = 1;
@@ -250,7 +254,8 @@ void CONFIG_SetDefaults( void )
    mouseSensitivity_Y = mouseSensitivity_X;
 
    // game
-   ps[0].aim_mode = 0;
+   ps[0].aim_mode = 1;  // Mouse look ON by default
+   myaimmode = 1;       // Enable mouse aiming at runtime by default
    ud.screen_size = 8; //8
    ud.extended_screen_size = 0;
    ud.screen_tilting = 1;
@@ -953,7 +958,7 @@ void CONFIG_WriteSetup( void )
 */
 
 #define RP2350_CONFIG_MAGIC 0x44554B45  // "DUKE"
-#define RP2350_CONFIG_VERSION 1
+#define RP2350_CONFIG_VERSION 2  // Bumped for mouse settings
 
 typedef struct {
     uint32_t magic;
@@ -982,6 +987,11 @@ typedef struct {
     int32 mouseSensitivity_X;
     int32 mouseSensitivity_Y;
     char playerName[32];
+    // Mouse settings (added in version 2)
+    int32 aim_mode;
+    int32 myaimmode;  // Runtime mouse aim state
+    int32 MouseMapping[MAXMOUSEBUTTONS];
+    int32 MouseDigitalAxeMapping[MAXMOUSEAXES][2];
 } rp2350_config_t;
 
 static const char* rp2350_config_filename = "duke3d.bin";
@@ -1046,7 +1056,13 @@ void CONFIG_ReadSetup_RP2350(void)
     CONTROL_SetMouseSensitivity_Y(cfg.mouseSensitivity_Y);
     strncpy(myname, cfg.playerName, sizeof(myname)-1);
     myname[sizeof(myname)-1] = '\0';
-    
+
+    // Load mouse settings
+    ps[0].aim_mode = cfg.aim_mode;
+    myaimmode = cfg.myaimmode;  // Load runtime mouse aim state
+    memcpy(MouseMapping, cfg.MouseMapping, sizeof(MouseMapping));
+    memcpy(MouseDigitalAxeMapping, cfg.MouseDigitalAxeMapping, sizeof(MouseDigitalAxeMapping));
+
     printf("Config loaded successfully\n");
     setupread = 1;
 }
@@ -1088,7 +1104,13 @@ void CONFIG_WriteSetup_RP2350(void)
     cfg.mouseSensitivity_Y = CONTROL_GetMouseSensitivity_Y();
     strncpy(cfg.playerName, myname, sizeof(cfg.playerName)-1);
     cfg.playerName[sizeof(cfg.playerName)-1] = '\0';
-    
+
+    // Save mouse settings
+    cfg.aim_mode = ps[myconnectindex].aim_mode;
+    cfg.myaimmode = myaimmode;  // Save runtime mouse aim state
+    memcpy(cfg.MouseMapping, MouseMapping, sizeof(MouseMapping));
+    memcpy(cfg.MouseDigitalAxeMapping, MouseDigitalAxeMapping, sizeof(MouseDigitalAxeMapping));
+
     fp = fopen(rp2350_config_filename, "wb");
     if (!fp) {
         printf("Failed to open config file for writing\n");

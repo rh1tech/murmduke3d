@@ -38,9 +38,9 @@ int SDL_Init(Uint32 flags) {
     // Initialize stdio wrapper for FatFS
     stdio_fatfs_init();
     
-    // Initialize PS/2 Keyboard
+    // Initialize PS/2 Keyboard and Mouse (unified driver)
     ps2kbd_init();
-    
+
     sdl_initialized = 1;
     
     return 0;

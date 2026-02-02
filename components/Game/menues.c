@@ -3167,25 +3167,25 @@ else
 			// display the button list
 			for(i=0; i<(MAXMOUSEAXES*2); i++)
 			{
-				*tempbuf = 0;
+				text[0] = '\0';
 				switch(i)
 				{
 					case 0:
-						strcat(text, "X left");
+						strcpy(text, "X left");
 						break;
 					case 1:
-						strcat(text, "X right");
+						strcpy(text, "X right");
 						break;
 					case 2:
-						strcat(text, "Y up");
+						strcpy(text, "Y up");
 						break;
 					case 3:
-						strcat(text, "Y down");
+						strcpy(text, "Y down");
 						break;
 					default:
 						break;
 				}
-				
+
 				gametext(c,47+i*8,text,0,2+8+16);
 				gametext(c+121,47+i*8,(MouseDigitalAxeMapping[i>>1][i&1]!=-1)?CONFIG_FunctionNumToName(MouseDigitalAxeMapping[i>>1][i&1]):"...",0,2+8+16);
 			}

@@ -5,12 +5,16 @@
 #include "SDL.h"
 #include "SDL_event.h"
 #include "ps2kbd_wrapper.h"
+#include "ps2.h"
 #include "pico/stdlib.h"
 
 #define MAX_EVENTS 32
 static SDL_Event event_queue[MAX_EVENTS];
 static int event_head = 0;
 static int event_tail = 0;
+
+// Mouse button tracking
+static uint8_t last_mouse_buttons = 0;
 
 // Duke3D scancodes (from keyboard.h)
 #define  sc_Escape       0x01
@@ -228,7 +232,7 @@ static SDLKey duke3d_scancode_to_sdl_key(unsigned char key) {
 void SDL_PumpEvents(void) {
     // Poll keyboard and add events to queue
     ps2kbd_tick();
-    
+
     int pressed;
     unsigned char key;
     while (ps2kbd_get_key(&pressed, &key)) {
@@ -242,6 +246,51 @@ void SDL_PumpEvents(void) {
             ev->key.state = pressed ? SDL_PRESSED : SDL_RELEASED;
             event_head = next_head;
         }
+    }
+
+    // Poll mouse
+    ps2_mouse_poll();
+
+    int16_t dx, dy;
+    int8_t wheel;
+    uint8_t buttons;
+
+    // Always get mouse state (returns true if motion, but always fills buttons)
+    ps2_mouse_get_state(&dx, &dy, &wheel, &buttons);
+
+    // Motion event
+    if (dx != 0 || dy != 0) {
+        int next_head = (event_head + 1) % MAX_EVENTS;
+        if (next_head != event_tail) {
+            SDL_Event *ev = &event_queue[event_head];
+            ev->type = SDL_MOUSEMOTION;
+            ev->motion.xrel = dx;
+            ev->motion.yrel = dy;
+            ev->motion.state = buttons;
+            event_head = next_head;
+        }
+    }
+
+    // Button events (always check, regardless of motion)
+    // PS/2 bit order: 0=middle, 1=right, 2=left (empirically determined)
+    // SDL button order: 1=left, 2=middle, 3=right
+    static const uint8_t ps2_to_sdl_button[3] = {2, 3, 1};  // Map PS/2 bits to SDL buttons
+
+    if (buttons != last_mouse_buttons) {
+        for (int i = 0; i < 3; i++) {
+            uint8_t mask = 1 << i;
+            if ((buttons & mask) != (last_mouse_buttons & mask)) {
+                int next_head = (event_head + 1) % MAX_EVENTS;
+                if (next_head != event_tail) {
+                    SDL_Event *ev = &event_queue[event_head];
+                    ev->type = (buttons & mask) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+                    ev->button.button = ps2_to_sdl_button[i];
+                    ev->button.state = (buttons & mask) ? SDL_PRESSED : SDL_RELEASED;
+                    event_head = next_head;
+                }
+            }
+        }
+        last_mouse_buttons = buttons;
     }
 }
 

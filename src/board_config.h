@@ -102,9 +102,13 @@ static inline uint get_psram_pin(void) {
 #define SDCARD_PIN_D0     4
 #define SDCARD_PIN_D3     5
 
-// PS/2 Pins
+// PS/2 Keyboard Pins
 #define PS2_PIN_CLK  0
 #define PS2_PIN_DATA 1
+
+// PS/2 Mouse Pins
+#define PS2_MOUSE_CLK  14
+#define PS2_MOUSE_DATA 15
 
 // I2S Audio Pins
 #define I2S_DATA_PIN       26
@@ -135,9 +139,13 @@ static inline uint get_psram_pin(void) {
 #define SDCARD_PIN_D0     4
 #define SDCARD_PIN_D3     5
 
-// PS/2 Pins
+// PS/2 Keyboard Pins
 #define PS2_PIN_CLK  2
 #define PS2_PIN_DATA 3
+
+// PS/2 Mouse Pins
+#define PS2_MOUSE_CLK  0
+#define PS2_MOUSE_DATA 1
 
 // I2S Audio Pins
 #define I2S_DATA_PIN       9

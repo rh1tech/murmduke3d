@@ -86,7 +86,7 @@ endif()
 add_subdirectory(src/fatfs)
 # Add drivers
 add_subdirectory(drivers/sdcard)
-add_subdirectory(drivers/ps2kbd)
+add_subdirectory(drivers/ps2)
 
 # Create a library for other drivers
 add_library(drivers
@@ -258,7 +258,7 @@ target_link_libraries(murmduke3d
     hardware_irq
     hardware_interp
     sdcard
-    ps2kbd
+    ps2_driver
     fatfs
     drivers
 )

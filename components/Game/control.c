@@ -754,6 +754,9 @@ void CONTROL_Startup
 {
 	int i;
 
+	// NOTE: MOUSE_Init() is called from CONFIG_SetDefaults() to ensure
+	// defaults are set BEFORE config is loaded, allowing config to override.
+
 	// Init the joystick
     _joystick_init();
 
@@ -766,7 +769,7 @@ void CONTROL_Startup
    CONTROL_MouseButtonState1 = 0;
    CONTROL_MouseButtonState2 = 0;
    CONTROL_MouseDigitalAxisState1 = 0;
-   CONTROL_MouseDigitalAxisState2 = 0;   
+   CONTROL_MouseDigitalAxisState2 = 0;
    CONTROL_JoyButtonState1 = 0;
    CONTROL_JoyButtonState2 = 0;
    CONTROL_JoyHatState1 = 0;
@@ -868,6 +871,21 @@ boolean MOUSE_Init( void )
 {
 	memset(MouseMapping,-1,sizeof(MouseMapping));
 	memset(MouseDigitalAxeMapping, -1, sizeof(MouseDigitalAxeMapping));
+
+	// Set default mouse button mappings for RP2350
+	// Button 0 = left, Button 1 = right, Button 2 = middle
+	MouseMapping[0] = gamefunc_Fire;        // Left button = Fire
+	MouseMapping[1] = gamefunc_Open;        // Right button = Open/Use
+	MouseMapping[2] = gamefunc_Strafe;      // Middle button = Strafe
+
+	// Set default mouse digital axis mappings
+	// Axis 0 = X (horizontal), Axis 1 = Y (vertical)
+	// [axis][0] = negative direction (backward), [axis][1] = positive direction (forward)
+	MouseDigitalAxeMapping[0][0] = gamefunc_Turn_Left;   // X negative = Turn left
+	MouseDigitalAxeMapping[0][1] = gamefunc_Turn_Right;  // X positive = Turn right
+	MouseDigitalAxeMapping[1][0] = gamefunc_Aim_Down;    // Y negative (mouse back) = Aim down
+	MouseDigitalAxeMapping[1][1] = gamefunc_Aim_Up;      // Y positive (mouse forward) = Aim up
+
 	return true;
 }
 
