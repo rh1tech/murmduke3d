@@ -18,6 +18,7 @@ int graphics_buffer_shift_y = 0;
 enum graphics_mode_t hdmi_graphics_mode = GRAPHICSMODE_DEFAULT;
 
 static uint8_t *graphics_buffer = NULL;
+static bool graphics_initialized = false;
 
 void graphics_set_buffer(uint8_t *buffer) {
     graphics_buffer = buffer;
@@ -639,6 +640,11 @@ void graphics_set_palette_hdmi(uint8_t i, uint32_t color888) {
 #define RGB888(r, g, b) ((r<<16) | (g << 8 ) | b )
 
 void graphics_init_hdmi() {
+    // Prevent double initialization (crashes due to PIO/DMA already claimed)
+    if (graphics_initialized) {
+        return;
+    }
+
     // PIO и DMA
     SM_video = pio_claim_unused_sm(PIO_VIDEO, true);
     SM_conv = pio_claim_unused_sm(PIO_VIDEO_ADDR, true);
@@ -648,6 +654,7 @@ void graphics_init_hdmi() {
     dma_chan_pal_conv = dma_claim_unused_channel(true);
 
     hdmi_init();
+    graphics_initialized = true;
 }
 
 void graphics_set_bgcolor_hdmi(uint32_t color888) //определяем зарезервированный цвет в палитре

@@ -2467,12 +2467,22 @@ void gameexit(char  *msg)
 
     GOTOHERE:
 
+#ifdef DUKE3D_RP2350
+    // On RP2350, do minimal shutdown and return to welcome screen
+    printf("gameexit: calling Shutdown()...\n");
+    Shutdown();
+    printf("gameexit: Shutdown() done\n");
+    // Set MODE_END so main game loop will exit
+    ps[myconnectindex].gm |= MODE_END;
+    printf("Returning to welcome screen...\n");
+    return;
+#else
     Shutdown();
 
     if(*t != 0)
     {
         setvmode(0x3);
-        
+
 // CTW - MODIFICATION
 /*      if(playonten == 0)
         {
@@ -2489,19 +2499,13 @@ void gameexit(char  *msg)
             printf("\n%s\n",t);
             #endif
         }
-// CTW END - MODIFICATION        
+// CTW END - MODIFICATION
     }
 
     uninitgroupfile();
 
     unlink("duke3d.tmp");
 
-#ifdef DUKE3D_RP2350
-    // On RP2350, return to welcome screen instead of exiting
-    // This allows main() to loop back to the GRP selection menu
-    printf("Returning to welcome screen...\n");
-    return;
-#else
     Error(EXIT_SUCCESS, "");
 #endif
 }
@@ -7742,6 +7746,13 @@ void loadtmb(void)
 
 void ShutDown( void )
 {
+#ifdef DUKE3D_RP2350
+    // On RP2350, only save config - don't shutdown subsystems
+    // since we're returning to welcome screen, not exiting
+    SoundShutdown();
+    MusicShutdown();
+    CONFIG_WriteSetup();
+#else
     SoundShutdown();
     MusicShutdown();
     uninittimer();
@@ -7750,6 +7761,7 @@ void ShutDown( void )
     CONFIG_WriteSetup();
     KB_Shutdown();
     CONSOLE_Term();
+#endif
 }
 
 
@@ -8194,6 +8206,13 @@ int main(int argc,char  **argv)
 
         uint8_t  kbdKey;
         uint8_t  *exe;
+
+#ifdef DUKE3D_RP2350
+    // Reset game mode flags for fresh start (in case returning from previous game)
+    for (i = 0; i < MAXPLAYERS; i++) {
+        ps[i].gm = 0;
+    }
+#endif
 	//printf(	"This is a debug version 19.7.1 only Based on 19.7\n"
 	//		"Fully compliant with v19.7. Added the following:\n\n"
 	//		"FIX_00086: grp loaded by smaller sucessive chunks to avoid\n"
@@ -8659,8 +8678,15 @@ int main(int argc,char  **argv)
         nextpage();
     }
 
+#ifdef DUKE3D_RP2350
+    // On RP2350, gameexit was already called from the quit menu handler
+    // Just return to welcome screen without calling gameexit again
+    printf("main_duke3d: returning to main()\n");
+    return(0);
+#else
     gameexit(" ");
 	return(0);
+#endif
 }
 
 uint8_t  opendemoread(uint8_t  which_demo) // 0 = mine

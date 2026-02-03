@@ -8,6 +8,7 @@
 #include "pico/stdlib.h"
 #include "ff.h"
 #include "ps2kbd_wrapper.h"
+#include "SDL_video.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -313,18 +314,13 @@ static void draw_plasma_background(uint32_t t_ms, int panel_x, int panel_y, int 
 // GRP File Scanning
 //=============================================================================
 
-// Compatible Duke3D GRP files
+// Compatible Duke3D GRP files (uppercase only - FAT is case-insensitive)
 static const grp_entry_t duke_grps[] = {
     {"DUKE3D.GRP", "Duke Nukem 3D v1.5 Atomic"},
-    {"duke3d.grp", "Duke Nukem 3D v1.5 Atomic"},
     {"DUKESW.GRP", "Duke Nukem 3D Shareware"},
-    {"dukesw.grp", "Duke Nukem 3D Shareware"},
     {"DUKEDC.GRP", "Duke It Out In D.C."},
-    {"dukedc.grp", "Duke It Out In D.C."},
     {"VACATION.GRP", "Duke Caribbean"},
-    {"vacation.grp", "Duke Caribbean"},
     {"NWINTER.GRP", "Duke Nuclear Winter"},
-    {"nwinter.grp", "Duke Nuclear Winter"},
 };
 
 #define MAX_GRP_FILES 10
@@ -403,10 +399,36 @@ static bool get_key(int *pressed, unsigned char *key) {
 //=============================================================================
 
 void welcome_init(void) {
-    // Initialize HDMI
+    static bool first_init = true;
+    static FATFS fs;
+
+    if (first_init) {
+        // Mount SD Card (only on first init)
+        printf("Mounting SD card...\n");
+        FRESULT fr = f_mount(&fs, "", 1);
+        if (fr != FR_OK) {
+            printf("Failed to mount SD card: %d\n", fr);
+        } else {
+            printf("SD card mounted successfully\n");
+        }
+
+        // Initialize PS/2 keyboard
+        ps2kbd_init();
+
+        first_init = false;
+    } else {
+        // Reset SDL video state when returning from game
+        printf("welcome_init: Resetting SDL video state...\n");
+        SDL_ResetVideoState();
+    }
+
+    // Initialize HDMI (skipped if already done)
+    printf("welcome_init: Setting up graphics %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
     graphics_init(g_out_HDMI);
+    // Always reset resolution to 320x240 for welcome screen
     graphics_set_res(SCREEN_WIDTH, SCREEN_HEIGHT);
     graphics_set_buffer(FRAME_BUF);
+    printf("welcome_init: Graphics setup done\n");
 
     // Initialize sine table for plasma
     init_sin_table();

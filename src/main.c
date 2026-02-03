@@ -118,9 +118,11 @@ int main() {
 
             // If we return here, game exited - loop back to welcome screen
             printf("\nGame exited, returning to welcome screen...\n");
+            printf("Calling welcome_init()...\n");
 
             // Re-initialize welcome screen graphics
             welcome_init();
+            printf("welcome_init() done, continuing to welcome_show()\n");
         } else {
             // No GRP files found - wait and retry
             printf("No GRP files found. Waiting...\n");

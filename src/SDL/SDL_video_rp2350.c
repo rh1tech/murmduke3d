@@ -39,6 +39,19 @@ uint8_t *get_display_framebuffer(void) {
     return FRAME_BUF;
 }
 
+/* Reset SDL video state for returning to welcome screen */
+void SDL_ResetVideoState(void) {
+    if (vid_buffer) {
+        psram_free(vid_buffer);
+        vid_buffer = NULL;
+    }
+    if (primary_surface) {
+        free(primary_surface);
+        primary_surface = NULL;
+    }
+    memset(palette_colors, 0, sizeof(palette_colors));
+}
+
 int SDL_LockSurface(SDL_Surface *surface) {
     return 0;
 }

@@ -103,6 +103,9 @@ void SDL_WarpMouse(Uint16 x, Uint16 y);
 Uint8 SDL_GetMouseState(int *x, int *y);
 int SDL_ShowCursor(int toggle);
 
+/* Reset video state for returning to welcome screen */
+void SDL_ResetVideoState(void);
+
 #define SDL_LOGPAL 0x01
 #define SDL_PHYSPAL 0x02
 

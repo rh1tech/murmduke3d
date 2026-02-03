@@ -23,26 +23,15 @@ int SDL_Init(Uint32 flags) {
     if (sdl_initialized) {
         return 0;
     }
-    
-    // Initialize PSRAM
-    uint psram_pin = get_psram_pin();
-    psram_init(psram_pin);
-    
-    // Mount SD Card
-    FRESULT fr = f_mount(&fs, "", 1);
-    if (fr != FR_OK) {
-        snprintf(error_string, sizeof(error_string), "Failed to mount SD card: %d", fr);
-        return -1;
-    }
-    
-    // Initialize stdio wrapper for FatFS
+
+    // Note: PSRAM, SD card, and PS/2 are already initialized by welcome screen
+    // in main.c before SDL_Init is called. We just need to initialize stdio wrapper.
+
+    // Initialize stdio wrapper for FatFS (safe to call multiple times)
     stdio_fatfs_init();
-    
-    // Initialize PS/2 Keyboard and Mouse (unified driver)
-    ps2kbd_init();
 
     sdl_initialized = 1;
-    
+
     return 0;
 }
 
