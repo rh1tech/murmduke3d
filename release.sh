@@ -2,17 +2,19 @@
 #
 # release.sh - Build all release variants of murmduke32
 #
-# Creates UF2 files for each board variant (M1, M2) at each clock speed:
-#   - Non-overclocked: 252 MHz CPU, 100 MHz PSRAM (84 MHz actual)
-#   - Medium overclock: 378 MHz CPU, 133 MHz PSRAM (126 MHz actual)  
+# Creates firmware files for each board variant (M1, M2) at each clock speed:
+#   - Medium overclock: 378 MHz CPU, 133 MHz PSRAM (126 MHz actual)
 #   - Max overclock: 504 MHz CPU, 166 MHz PSRAM (168 MHz actual)
 #
-# Output format: murmduke32_mX_Y_Z_A_BB.uf2
-#   X  = Board variant (1 or 2)
-#   Y  = CPU clock in MHz
-#   Z  = PSRAM clock in MHz (target)
-#   A  = Major version
-#   BB = Minor version (zero-padded)
+# Output formats:
+#   - UF2: murmduke32_mX_Y_Z_A_BB.uf2 (standard Pico firmware)
+#   - MOS2: murmduke32_mX_Y_Z_A_BB.m1p2/m2p2 (Murmulator OS 2)
+#
+# X  = Board variant (1 or 2)
+# Y  = CPU clock in MHz
+# Z  = PSRAM clock in MHz (target)
+# A  = Major version
+# BB = Minor version (zero-padded)
 #
 
 set -e
@@ -93,18 +95,21 @@ echo "$MAJOR $MINOR" > "$VERSION_FILE"
 RELEASE_DIR="$SCRIPT_DIR/release"
 mkdir -p "$RELEASE_DIR"
 
-# Build configurations: "BOARD CPU_SPEED PSRAM_SPEED DESCRIPTION"
+# Build configurations: "BOARD CPU_SPEED PSRAM_SPEED MOS2 DESCRIPTION"
 # Tested working configurations:
-#   252 MHz CPU + 100 MHz PSRAM = 84 MHz actual (no overclock)
 #   378 MHz CPU + 133 MHz PSRAM = 126 MHz actual (medium)
 #   504 MHz CPU + 166 MHz PSRAM = 168 MHz actual (max stable)
 CONFIGS=(
-    "M1 252 100 non-overclocked"
-    "M1 378 133 medium-overclock"
-    "M1 504 166 max-overclock"
-    "M2 252 100 non-overclocked"
-    "M2 378 133 medium-overclock"
-    "M2 504 166 max-overclock"
+    # Standard UF2 builds
+    "M1 378 133 OFF medium-oc"
+    "M1 504 166 OFF max-oc"
+    "M2 378 133 OFF medium-oc"
+    "M2 504 166 OFF max-oc"
+    # MOS2 builds (Murmulator OS 2)
+    "M1 378 133 ON mos2-medium"
+    "M1 504 166 ON mos2-max"
+    "M2 378 133 ON mos2-medium"
+    "M2 504 166 ON mos2-max"
 )
 
 BUILD_COUNT=0
@@ -115,45 +120,63 @@ echo -e "${YELLOW}Building $TOTAL_BUILDS firmware variants...${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 for config in "${CONFIGS[@]}"; do
-    read -r BOARD CPU PSRAM DESC <<< "$config"
-    
+    read -r BOARD CPU PSRAM MOS2 DESC <<< "$config"
+
     BUILD_COUNT=$((BUILD_COUNT + 1))
-    
+
     # Board variant number
     if [[ "$BOARD" == "M1" ]]; then
         BOARD_NUM=1
     else
         BOARD_NUM=2
     fi
-    
-    # Output filename
-    OUTPUT_NAME="murmduke32_m${BOARD_NUM}_${CPU}_${PSRAM}_${VERSION}.uf2"
-    
+
+    # Determine file extension and output name
+    if [[ "$MOS2" == "ON" ]]; then
+        if [[ "$BOARD" == "M1" ]]; then
+            EXT="m1p2"
+        else
+            EXT="m2p2"
+        fi
+        OUTPUT_NAME="murmduke32_m${BOARD_NUM}_${CPU}_${PSRAM}_${VERSION}.${EXT}"
+        BUILD_FILE="murmduke3d.${EXT}"
+    else
+        EXT="uf2"
+        OUTPUT_NAME="murmduke32_m${BOARD_NUM}_${CPU}_${PSRAM}_${VERSION}.uf2"
+        BUILD_FILE="murmduke3d.uf2"
+    fi
+
     echo ""
     echo -e "${CYAN}[$BUILD_COUNT/$TOTAL_BUILDS] Building: $OUTPUT_NAME${NC}"
     echo -e "  Board: $BOARD | CPU: ${CPU} MHz | PSRAM: ${PSRAM} MHz | $DESC"
-    
+
     # Clean and create build directory
     rm -rf build
     mkdir build
     cd build
-    
+
     # Configure with CMake (USB HID enabled for release builds)
-    cmake .. -DBOARD_VARIANT="$BOARD" -DCPU_SPEED="$CPU" -DPSRAM_SPEED="$PSRAM" -DUSB_HID_ENABLED=ON > /dev/null 2>&1
-    
+    cmake .. \
+        -DBOARD_VARIANT="$BOARD" \
+        -DCPU_SPEED="$CPU" \
+        -DPSRAM_SPEED="$PSRAM" \
+        -DUSB_HID_ENABLED=ON \
+        -DMOS2="$MOS2" \
+        > /dev/null 2>&1
+
     # Build
     if make -j8 > /dev/null 2>&1; then
-        # Copy UF2 to release directory
-        if [[ -f "murmduke3d.uf2" ]]; then
-            cp "murmduke3d.uf2" "$RELEASE_DIR/$OUTPUT_NAME"
+        # Copy output file to release directory
+        if [[ -f "$BUILD_FILE" ]]; then
+            cp "$BUILD_FILE" "$RELEASE_DIR/$OUTPUT_NAME"
             echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
         else
-            echo -e "  ${RED}✗ UF2 not found${NC}"
+            echo -e "  ${RED}✗ Output file not found${NC}"
         fi
     else
         echo -e "  ${RED}✗ Build failed${NC}"
     fi
-    
+
     cd "$SCRIPT_DIR"
 done
 
@@ -166,6 +189,10 @@ echo -e "${GREEN}Release build complete!${NC}"
 echo ""
 echo "Release files in: $RELEASE_DIR/"
 echo ""
-ls -la "$RELEASE_DIR"/murmduke32_*_${VERSION}.uf2 2>/dev/null | awk '{print "  " $9 " (" $5 " bytes)"}'
+echo -e "${CYAN}Standard UF2 files:${NC}"
+ls -la "$RELEASE_DIR"/murmduke32_*_${VERSION}.uf2 2>/dev/null | awk '{print "  " $9 " (" $5 " bytes)"}' || echo "  (none)"
+echo ""
+echo -e "${CYAN}MOS2 files (Murmulator OS 2):${NC}"
+ls -la "$RELEASE_DIR"/murmduke32_*_${VERSION}.m?p2 2>/dev/null | awk '{print "  " $9 " (" $5 " bytes)"}' || echo "  (none)"
 echo ""
 echo -e "Version: ${CYAN}${MAJOR}.$(printf '%02d' $MINOR)${NC}"

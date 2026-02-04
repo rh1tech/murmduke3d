@@ -276,6 +276,13 @@ void SDL_PumpEvents(void) {
     // Get PS/2 mouse state
     ps2_mouse_get_state(&dx, &dy, &wheel, &buttons);
 
+    // Remap PS/2 buttons to SDL bit order for motion.state
+    // PS/2 standard: bit 0=left, bit 1=right, bit 2=middle
+    // SDL standard:  bit 0=left, bit 1=middle, bit 2=right
+    uint8_t ps2_buttons_remapped = ((buttons & 0x01)) |        // left (bit 0) -> SDL left (bit 0)
+                                   ((buttons & 0x04) >> 1) |   // middle (bit 2) -> SDL middle (bit 1)
+                                   ((buttons & 0x02) << 1);    // right (bit 1) -> SDL right (bit 2)
+
     // PS/2 Motion event
     if (dx != 0 || dy != 0) {
         int next_head = (event_head + 1) % MAX_EVENTS;
@@ -284,15 +291,15 @@ void SDL_PumpEvents(void) {
             ev->type = SDL_MOUSEMOTION;
             ev->motion.xrel = dx;
             ev->motion.yrel = dy;
-            ev->motion.state = buttons;
+            ev->motion.state = ps2_buttons_remapped;
             event_head = next_head;
         }
     }
 
     // PS/2 Button events
-    // PS/2 bit order: 0=middle, 1=right, 2=left (empirically determined)
+    // PS/2 standard: bit 0=left, bit 1=right, bit 2=middle
     // SDL button order: 1=left, 2=middle, 3=right
-    static const uint8_t ps2_to_sdl_button[3] = {2, 3, 1};  // Map PS/2 bits to SDL buttons
+    static const uint8_t ps2_to_sdl_button[3] = {1, 3, 2};  // Map PS/2 bits to SDL buttons
 
     if (buttons != last_mouse_buttons) {
         for (int i = 0; i < 3; i++) {
@@ -317,6 +324,13 @@ void SDL_PumpEvents(void) {
     uint8_t usb_buttons;
     usbhid_wrapper_get_mouse_state(&usb_dx, &usb_dy, &usb_wheel, &usb_buttons);
 
+    // Remap USB HID buttons to SDL bit order for motion.state
+    // USB HID:      bit 0=left, bit 1=right, bit 2=middle
+    // SDL standard: bit 0=left, bit 1=middle, bit 2=right
+    uint8_t usb_buttons_remapped = ((usb_buttons & 0x01)) |        // USB left (bit 0) -> SDL left (bit 0)
+                                   ((usb_buttons & 0x04) >> 1) |   // USB middle (bit 2) -> SDL middle (bit 1)
+                                   ((usb_buttons & 0x02) << 1);    // USB right (bit 1) -> SDL right (bit 2)
+
     // USB HID Motion event
     if (usb_dx != 0 || usb_dy != 0) {
         int next_head = (event_head + 1) % MAX_EVENTS;
@@ -325,13 +339,14 @@ void SDL_PumpEvents(void) {
             ev->type = SDL_MOUSEMOTION;
             ev->motion.xrel = usb_dx;
             ev->motion.yrel = usb_dy;
-            ev->motion.state = usb_buttons;
+            ev->motion.state = usb_buttons_remapped;
             event_head = next_head;
         }
     }
 
     // USB HID Button events
     // USB HID bit order: 0=left, 1=right, 2=middle (standard USB HID)
+    // PS/2 bit order: 0=middle, 1=right, 2=left
     // SDL button order: 1=left, 2=middle, 3=right
     static const uint8_t usb_to_sdl_button[3] = {1, 3, 2};  // Map USB bits to SDL buttons
 

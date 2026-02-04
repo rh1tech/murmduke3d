@@ -42,9 +42,9 @@ typedef SDL_Keycode SDLKey;  /* Compatibility alias */
 #define AUDIO_S16SYS 16
 #define AUDIO_S8 8
 
-#define SDL_BUTTON_LEFT 0
-#define SDL_BUTTON_RIGHT 1
+#define SDL_BUTTON_LEFT 1
 #define SDL_BUTTON_MIDDLE 2
+#define SDL_BUTTON_RIGHT 3
 #define SDLK_NUMLOCK 999
 #define SDLK_SCROLLOCK 1000
 
