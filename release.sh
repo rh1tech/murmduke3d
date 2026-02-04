@@ -138,8 +138,8 @@ for config in "${CONFIGS[@]}"; do
     mkdir build
     cd build
     
-    # Configure with CMake
-    cmake .. -DBOARD_VARIANT="$BOARD" -DCPU_SPEED="$CPU" -DPSRAM_SPEED="$PSRAM" > /dev/null 2>&1
+    # Configure with CMake (USB HID enabled for release builds)
+    cmake .. -DBOARD_VARIANT="$BOARD" -DCPU_SPEED="$CPU" -DPSRAM_SPEED="$PSRAM" -DUSB_HID_ENABLED=ON > /dev/null 2>&1
     
     # Build
     if make -j8 > /dev/null 2>&1; then

@@ -1,11 +1,12 @@
 /*
  * SDL Event implementation for RP2350
- * Uses PS/2 keyboard driver from murmdoom
+ * Uses PS/2 and USB HID keyboard/mouse drivers
  */
 #include "SDL.h"
 #include "SDL_event.h"
 #include "ps2kbd_wrapper.h"
 #include "ps2.h"
+#include "usbhid_wrapper.h"
 #include "pico/stdlib.h"
 
 #define MAX_EVENTS 32
@@ -229,8 +230,11 @@ static SDLKey duke3d_scancode_to_sdl_key(unsigned char key) {
     }
 }
 
+// USB HID mouse button tracking
+static uint8_t last_usb_mouse_buttons = 0;
+
 void SDL_PumpEvents(void) {
-    // Poll keyboard and add events to queue
+    // Poll PS/2 keyboard and add events to queue
     ps2kbd_tick();
 
     int pressed;
@@ -248,17 +252,31 @@ void SDL_PumpEvents(void) {
         }
     }
 
-    // Poll mouse
+    // Poll USB HID keyboard (if enabled)
+    while (usbhid_wrapper_get_key(&pressed, &key)) {
+        int next_head = (event_head + 1) % MAX_EVENTS;
+        if (next_head != event_tail) {
+            SDL_Event *ev = &event_queue[event_head];
+            ev->type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+            ev->key.keysym.sym = duke3d_scancode_to_sdl_key(key);
+            ev->key.keysym.scancode = key;
+            ev->key.keysym.mod = KMOD_NONE;
+            ev->key.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+            event_head = next_head;
+        }
+    }
+
+    // Poll PS/2 mouse
     ps2_mouse_poll();
 
     int16_t dx, dy;
     int8_t wheel;
     uint8_t buttons;
 
-    // Always get mouse state (returns true if motion, but always fills buttons)
+    // Get PS/2 mouse state
     ps2_mouse_get_state(&dx, &dy, &wheel, &buttons);
 
-    // Motion event
+    // PS/2 Motion event
     if (dx != 0 || dy != 0) {
         int next_head = (event_head + 1) % MAX_EVENTS;
         if (next_head != event_tail) {
@@ -271,7 +289,7 @@ void SDL_PumpEvents(void) {
         }
     }
 
-    // Button events (always check, regardless of motion)
+    // PS/2 Button events
     // PS/2 bit order: 0=middle, 1=right, 2=left (empirically determined)
     // SDL button order: 1=left, 2=middle, 3=right
     static const uint8_t ps2_to_sdl_button[3] = {2, 3, 1};  // Map PS/2 bits to SDL buttons
@@ -291,6 +309,47 @@ void SDL_PumpEvents(void) {
             }
         }
         last_mouse_buttons = buttons;
+    }
+
+    // Poll USB HID mouse (if enabled)
+    int16_t usb_dx, usb_dy;
+    int8_t usb_wheel;
+    uint8_t usb_buttons;
+    usbhid_wrapper_get_mouse_state(&usb_dx, &usb_dy, &usb_wheel, &usb_buttons);
+
+    // USB HID Motion event
+    if (usb_dx != 0 || usb_dy != 0) {
+        int next_head = (event_head + 1) % MAX_EVENTS;
+        if (next_head != event_tail) {
+            SDL_Event *ev = &event_queue[event_head];
+            ev->type = SDL_MOUSEMOTION;
+            ev->motion.xrel = usb_dx;
+            ev->motion.yrel = usb_dy;
+            ev->motion.state = usb_buttons;
+            event_head = next_head;
+        }
+    }
+
+    // USB HID Button events
+    // USB HID bit order: 0=left, 1=right, 2=middle (standard USB HID)
+    // SDL button order: 1=left, 2=middle, 3=right
+    static const uint8_t usb_to_sdl_button[3] = {1, 3, 2};  // Map USB bits to SDL buttons
+
+    if (usb_buttons != last_usb_mouse_buttons) {
+        for (int i = 0; i < 3; i++) {
+            uint8_t mask = 1 << i;
+            if ((usb_buttons & mask) != (last_usb_mouse_buttons & mask)) {
+                int next_head = (event_head + 1) % MAX_EVENTS;
+                if (next_head != event_tail) {
+                    SDL_Event *ev = &event_queue[event_head];
+                    ev->type = (usb_buttons & mask) ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+                    ev->button.button = usb_to_sdl_button[i];
+                    ev->button.state = (usb_buttons & mask) ? SDL_PRESSED : SDL_RELEASED;
+                    event_head = next_head;
+                }
+            }
+        }
+        last_usb_mouse_buttons = usb_buttons;
     }
 }
 

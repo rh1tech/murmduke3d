@@ -8,6 +8,7 @@
 #include "pico/stdlib.h"
 #include "ff.h"
 #include "ps2kbd_wrapper.h"
+#include "usbhid_wrapper.h"
 #include "SDL_video.h"
 #include <stdio.h>
 #include <string.h>
@@ -390,8 +391,18 @@ static void render_menu(int selected, int menu_x, int menu_y, int menu_w, int li
 #define sc_S         0x1f
 
 static bool get_key(int *pressed, unsigned char *key) {
+    // Poll PS/2 keyboard
     ps2kbd_tick();
-    return ps2kbd_get_key(pressed, key);
+    if (ps2kbd_get_key(pressed, key)) {
+        return true;
+    }
+
+    // Poll USB HID keyboard (if enabled)
+    if (usbhid_wrapper_get_key(pressed, key)) {
+        return true;
+    }
+
+    return false;
 }
 
 //=============================================================================
@@ -414,6 +425,9 @@ void welcome_init(void) {
 
         // Initialize PS/2 keyboard
         ps2kbd_init();
+
+        // Initialize USB HID (if enabled)
+        usbhid_wrapper_init();
 
         first_init = false;
     } else {

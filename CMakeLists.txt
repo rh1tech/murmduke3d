@@ -14,6 +14,11 @@ set(CPU_SPEED "252" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 # Actual speed depends on CPU clock divider
 set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
+# USB HID configuration
+# When enabled: USB port is used for keyboard/mouse input, debug output via UART
+# When disabled (default): USB port is used for serial console debug output
+option(USB_HID_ENABLED "Enable USB HID keyboard/mouse support (disables USB serial console)" OFF)
+
 # CPU voltage selection based on speed
 # Higher speeds need higher voltage for stability
 if(CPU_SPEED GREATER_EQUAL 504)
@@ -93,6 +98,7 @@ add_subdirectory(src/fatfs)
 # Add drivers
 add_subdirectory(drivers/sdcard)
 add_subdirectory(drivers/ps2)
+add_subdirectory(drivers/usbhid)
 
 # Create a library for other drivers
 add_library(drivers
@@ -188,6 +194,11 @@ target_include_directories(murmduke3d PRIVATE
     drivers/ps2
 )
 
+# Only include usbhid directory when USB HID is enabled (to avoid tusb_config.h conflict)
+if(USB_HID_ENABLED)
+    target_include_directories(murmduke3d PRIVATE drivers/usbhid)
+endif()
+
 target_compile_definitions(murmduke3d PRIVATE
     BOARD_${BOARD_VARIANT}
     DBOARD_VARIANT="${BOARD_VARIANT}"
@@ -269,6 +280,7 @@ target_link_libraries(murmduke3d
     hardware_interp
     sdcard
     ps2_driver
+    usbhid
     fatfs
     drivers
 )
@@ -291,8 +303,17 @@ target_link_options(murmduke3d PRIVATE
     -Wl,--wrap=lseek
 )
 
-# Enable USB stdio
-pico_enable_stdio_usb(murmduke3d 1)
-pico_enable_stdio_uart(murmduke3d 0)
+# Configure stdio based on USB HID setting
+# When USB HID enabled: USB port is used for HID, debug via UART
+# When USB HID disabled: USB port is used for serial console
+if(USB_HID_ENABLED)
+    message(STATUS "Debug output: UART (USB used for HID)")
+    pico_enable_stdio_usb(murmduke3d 0)
+    pico_enable_stdio_uart(murmduke3d 1)
+else()
+    message(STATUS "Debug output: USB Serial Console")
+    pico_enable_stdio_usb(murmduke3d 1)
+    pico_enable_stdio_uart(murmduke3d 0)
+endif()
 
 pico_add_extra_outputs(murmduke3d)

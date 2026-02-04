@@ -115,6 +115,37 @@ echo "→ Selected: $PSRAM_SPEED MHz max (actual: ~$ACTUAL_PSRAM MHz at $CPU_SPE
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────
+# USB HID Selection
+# ─────────────────────────────────────────────────────────────────────
+echo "┌─────────────────────────────────────────────────────────────────┐"
+echo "│ 4. USB Input Mode                                              │"
+echo "├─────────────────────────────────────────────────────────────────┤"
+echo "│  1) USB Serial Console (default for development)               │"
+echo "│     - Debug output via USB serial port                         │"
+echo "│     - PS/2 keyboard/mouse only                                 │"
+echo "│                                                                 │"
+echo "│  2) USB HID Keyboard/Mouse                                     │"
+echo "│     - USB keyboard and mouse support                           │"
+echo "│     - Debug output via UART (GPIO 0/1)                         │"
+echo "│     - PS/2 keyboard/mouse still works alongside USB            │"
+echo "└─────────────────────────────────────────────────────────────────┘"
+echo ""
+
+while true; do
+    read -p "Select USB mode [1-2] (default: 1): " USB_CHOICE
+    USB_CHOICE=${USB_CHOICE:-1}
+
+    case "$USB_CHOICE" in
+        1) USB_HID="OFF"; USB_MODE_DESC="Serial Console"; break ;;
+        2) USB_HID="ON"; USB_MODE_DESC="HID Keyboard/Mouse"; break ;;
+        *) echo "Invalid choice. Please enter 1 or 2." ;;
+    esac
+done
+
+echo "→ Selected: $USB_MODE_DESC"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────
 # Build Summary
 # ─────────────────────────────────────────────────────────────────────
 echo "┌─────────────────────────────────────────────────────────────────┐"
@@ -123,6 +154,7 @@ echo "├───────────────────────�
 printf "│  Board Variant:  %-46s │\n" "$BOARD_CHOICE"
 printf "│  CPU Speed:      %-46s │\n" "$CPU_SPEED MHz"
 printf "│  PSRAM Speed:    %-46s │\n" "$PSRAM_SPEED MHz max (~$ACTUAL_PSRAM MHz actual)"
+printf "│  USB Mode:       %-46s │\n" "$USB_MODE_DESC"
 echo "└─────────────────────────────────────────────────────────────────┘"
 echo ""
 
@@ -158,6 +190,7 @@ cmake .. \
     -DBOARD_VARIANT="$BOARD_CHOICE" \
     -DCPU_SPEED="$CPU_SPEED" \
     -DPSRAM_SPEED="$PSRAM_SPEED" \
+    -DUSB_HID_ENABLED="$USB_HID" \
     -DCMAKE_BUILD_TYPE=Release
 
 echo ""
