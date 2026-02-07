@@ -4,6 +4,9 @@ on:
   push:
     branches: [ main, master ]
 
+permissions:
+  contents: write
+
 jobs:
   release:
     # Only run when commit message starts with "release:"
