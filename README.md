@@ -9,7 +9,7 @@ A port of Duke Nukem 3D to the Raspberry Pi RP2350 microcontroller with PSRAM su
 - PS/2 keyboard support
 - SD card for game data (FAT filesystem)
 - I2S audio output (TDA1387 DAC)
-- Overclocking support (252/378/504 MHz)
+- Overclocking support (252/378/504 MHz), flash runs on 66 MHz
 
 ## Hardware Requirements
 

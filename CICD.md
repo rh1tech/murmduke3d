@@ -132,6 +132,7 @@ The workflow file at `.github/workflows/release.yml`:
 
 - **Trigger**: `push` to `main` or `master`
 - **Condition**: `if: startsWith(github.event.head_commit.message, 'release:')`
+- **Permissions**: `contents: write` (required to create releases and tags)
 - **Runner**: `runs-on: [self-hosted, rp2350]`
 - **Release action**: `softprops/action-gh-release@v2`
 - **Auth**: Uses the automatic `GITHUB_TOKEN` secret (no manual token setup needed)
