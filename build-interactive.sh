@@ -115,10 +115,37 @@ echo "→ Selected: $PSRAM_SPEED MHz max (actual: ~$ACTUAL_PSRAM MHz at $CPU_SPE
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────
+# Flash Chip Speed Selection
+# ─────────────────────────────────────────────────────────────────────
+echo "┌─────────────────────────────────────────────────────────────────┐"
+echo "│ 4. Select Flash Chip Speed                                     │"
+echo "├─────────────────────────────────────────────────────────────────┤"
+echo "│  1) 66 MHz - Conservative (more stable)                        │"
+echo "│  2) 88 MHz - Default (higher performance)                      │"
+echo "│                                                                 │"
+echo "│  Lower flash speed can improve stability at higher CPU clocks. │"
+echo "└─────────────────────────────────────────────────────────────────┘"
+echo ""
+
+while true; do
+    read -p "Select flash speed [1-2] (default: 2 for 88 MHz): " FLASH_CHOICE
+    FLASH_CHOICE=${FLASH_CHOICE:-2}
+
+    case "$FLASH_CHOICE" in
+        1) FLASH_SPEED=66; break ;;
+        2) FLASH_SPEED=88; break ;;
+        *) echo "Invalid choice. Please enter 1 or 2." ;;
+    esac
+done
+
+echo "→ Selected: $FLASH_SPEED MHz"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────
 # USB HID Selection
 # ─────────────────────────────────────────────────────────────────────
 echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│ 4. USB Input Mode                                              │"
+echo "│ 5. USB Input Mode                                              │"
 echo "├─────────────────────────────────────────────────────────────────┤"
 echo "│  1) USB Serial Console (default for development)               │"
 echo "│     - Debug output via USB serial port                         │"
@@ -154,6 +181,7 @@ echo "├───────────────────────�
 printf "│  Board Variant:  %-46s │\n" "$BOARD_CHOICE"
 printf "│  CPU Speed:      %-46s │\n" "$CPU_SPEED MHz"
 printf "│  PSRAM Speed:    %-46s │\n" "$PSRAM_SPEED MHz max (~$ACTUAL_PSRAM MHz actual)"
+printf "│  Flash Speed:    %-46s │\n" "$FLASH_SPEED MHz"
 printf "│  USB Mode:       %-46s │\n" "$USB_MODE_DESC"
 echo "└─────────────────────────────────────────────────────────────────┘"
 echo ""
@@ -190,6 +218,7 @@ cmake .. \
     -DBOARD_VARIANT="$BOARD_CHOICE" \
     -DCPU_SPEED="$CPU_SPEED" \
     -DPSRAM_SPEED="$PSRAM_SPEED" \
+    -DFLASH_SPEED="$FLASH_SPEED" \
     -DUSB_HID_ENABLED="$USB_HID" \
     -DCMAKE_BUILD_TYPE=Release
 

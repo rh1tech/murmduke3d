@@ -24,7 +24,10 @@ extern void set_game_dir(const char *dir);
 // Flash timing configuration for overclocking
 // Must be called BEFORE changing system clock
 // Based on Quake port approach
+// FLASH_MAX_FREQ_MHZ is set via CMake -DFLASH_SPEED=xx (default 88)
+#ifndef FLASH_MAX_FREQ_MHZ
 #define FLASH_MAX_FREQ_MHZ 88
+#endif
 
 static void __no_inline_not_in_flash_func(set_flash_timings)(int cpu_mhz) {
     const int clock_hz = cpu_mhz * 1000000;

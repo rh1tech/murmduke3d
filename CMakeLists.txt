@@ -14,6 +14,10 @@ set(CPU_SPEED "252" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 # Actual speed depends on CPU clock divider
 set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
+# Flash chip speed configuration (default 66 MHz)
+# Lower values improve stability, higher values improve performance
+set(FLASH_SPEED "66" CACHE STRING "Flash chip max frequency in MHz: 66, 88")
+
 # USB HID configuration
 # When enabled: USB port is used for keyboard/mouse input, debug output via UART
 # When disabled (default): USB port is used for serial console debug output
@@ -65,7 +69,7 @@ else()
     set(I2S_CLK_PIN 10)
 endif()
 
-message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_SPEED} MHz")
+message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_SPEED} MHz, Flash: ${FLASH_SPEED} MHz")
 message(STATUS "SD pins: SCK=${SD_PIN_SCK} MOSI=${SD_PIN_MOSI} MISO=${SD_PIN_MISO} CS=${SD_PIN_CS}")
 message(STATUS "HDMI base: ${HDMI_BASE_PIN}, PS/2: CLK=${PS2_CLK_PIN} DATA=${PS2_DATA_PIN}")
 
@@ -207,10 +211,11 @@ target_compile_definitions(murmduke3d PRIVATE
     BOARD_${BOARD_VARIANT}
     DBOARD_VARIANT="${BOARD_VARIANT}"
     MURMDUKE_VERSION="${MURMDUKE_VERSION}"
-    # CPU/PSRAM speed configuration
+    # CPU/PSRAM/Flash speed configuration
     CPU_CLOCK_MHZ=${CPU_SPEED}
     CPU_VOLTAGE=${CPU_VOLTAGE}
     PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
+    FLASH_MAX_FREQ_MHZ=${FLASH_SPEED}
     PLATFORM_SUPPORTS_SDL
     DUKE3D_RP2350
     PLATFORM_ESP32  # Use ESP32 platform code paths

@@ -160,6 +160,7 @@ for config in "${CONFIGS[@]}"; do
         -DBOARD_VARIANT="$BOARD" \
         -DCPU_SPEED="$CPU" \
         -DPSRAM_SPEED="$PSRAM" \
+        -DFLASH_SPEED=66 \
         -DUSB_HID_ENABLED=ON \
         -DMOS2="$MOS2" \
         > /dev/null 2>&1
